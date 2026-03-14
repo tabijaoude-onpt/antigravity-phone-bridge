@@ -1,0 +1,682 @@
+diff --git a/server.js b/server.js
+index d1507fa..bfb58d3 100644
+--- a/server.js
++++ b/server.js
+@@ -46,16 +46,16 @@ async function refreshTargets() {
+ 
+ // ─── Choose Active Target ─────────────────────────────────────────────────────
+ // Prefer the 'Agent Manager' window: a workbench with no open file tab in its title.
+-// Clean:   "OnPoint - Antigravity"           (ends with " - Antigravity")
+-// Dirty:   "OnPoint - Antigravity - file.js" (has content after last " - Antigravity")
+-//          "Antigravity - server.js"          (starts with Antigravity but has file suffix)
++// Clean:   "OnPoint — Antigravity"           (ends with " — Antigravity")
++// Dirty:   "OnPoint — Antigravity — file.js" (has content after last " — Antigravity")
++//          "Antigravity — server.js"          (starts with Antigravity but has file suffix)
+ function isAgentManagerWindow(t) {
+     if (!t.url.includes('workbench.html')) return false;
+     const title = (t.title || '').trim();
+     if (!title || title.startsWith('vscode-file://')) return false;
+-    // A clean manager window title ends with exactly " - Antigravity" or is just "Antigravity"
++    // A clean manager window title ends with exactly " — Antigravity" or is just "Antigravity"
+     if (title === 'Antigravity') return true;
+-    if (title.endsWith(' - Antigravity')) return true;
++    if (title.endsWith(' - Antigravity') || title.endsWith(' — Antigravity')) return true;
+     // Anything else has an open file in the title
+     return false;
+ }
+@@ -221,81 +221,73 @@ function detectAuthState(text) {
+     return { authenticated: true };
+ }
+ 
+-// ── Send via xclip + xdotool (OS-level clipboard paste) ───────────────────────
++// ── Send via pbcopy + osascript (OS-level clipboard paste) ───────────────────────
+ // This is the ONLY reliable way to inject text into VS Code / Electron React inputs.
+ // Input.insertText only works on native <input>/<textarea>, not Monaco contenteditable.
+-const DISPLAY_ENV = { ...process.env, DISPLAY: ':99', HOME: '/home/tony', XAUTHORITY: '/home/tony/.Xauthority', PATH: '/usr/local/bin:/usr/bin:/bin' };
+-const XCLIP_BIN   = '/usr/bin/xclip';
+-const XDOTOOL_BIN = '/usr/bin/xdotool';
++const PBCOPY_BIN   = '/usr/bin/pbcopy';
++const OSASCRIPT_BIN = '/usr/bin/osascript';
+ 
+ function xdotoolSend(text) {
+     return new Promise((resolve) => {
+         try {
+-            // Get all window IDs matching "Antigravity"
+-            const winResult = spawnSync(XDOTOOL_BIN, ['search', '--name', 'Antigravity'], {
+-                encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
++            // Get all window names of the Electron process (Antigravity on Mac)
++            const winResult = spawnSync(OSASCRIPT_BIN, ['-e', 'tell application "System Events" to get name of every window of process "Electron"'], {
++                encoding: 'utf8', timeout: 3000,
+             });
+-            const winIds = (winResult.stdout || '').trim().split('\n').filter(Boolean);
+-            if (!winIds.length) throw new Error('No Antigravity window found by xdotool search');
++            const winNames = (winResult.stdout || '').trim().split(', ');
++            if (!winNames.length || winNames[0] === '') throw new Error('No Antigravity windows found by osascript search');
+ 
+             // Find the best window:
+-            // 1. Match by active CDP target title (most precise)
+-            // 2. Any window with a title longer than "antigravity" (real window, not helper)
+-            // 3. Fall back to first valid window
+-            let winId = null;
++            let targetTitle = null;
+ 
+             // Get title of active CDP target so we can match it
+             const activeTarget = cdpTargets.find(t => t.webSocketDebuggerUrl === activeTargetUrl);
+             const activeTitle  = activeTarget?.title || '';
+ 
+-            for (const wid of winIds) {
+-                try {
+-                    const titleResult = spawnSync(XDOTOOL_BIN, ['getwindowname', wid], {
+-                        encoding: 'utf8', env: DISPLAY_ENV, timeout: 2000,
+-                    });
+-                    const title = (titleResult.stdout || '').trim();
+-                    if (!title) continue;
+-
+-                    // Skip tiny helper processes (just lowercase "antigravity" with no workspace name)
+-                    if (title === 'antigravity') continue;
+-
+-                    // Prefer the window that matches our active CDP target title
+-                    if (activeTitle && title.includes(activeTitle.replace(/ - Antigravity$/, '').trim())) {
+-                        winId = wid;
+-                        break;
+-                    }
++            for (const title of winNames) {
++                // Skip tiny helper processes or undefined
++                if (!title || title === 'missing value') continue;
++
++                // Prefer the window that matches our active CDP target title
++                if (activeTitle && title.includes(activeTitle.replace(/ (?:-|—) Antigravity.*$/, '').trim())) {
++                    targetTitle = title;
++                    break;
++                }
+ 
+-                    // Otherwise take the first real window found
+-                    if (!winId) winId = wid;
+-                } catch (_) {}
++                // Otherwise take the first real window found (not a generic modal)
++                if (!targetTitle) targetTitle = title;
+             }
+ 
+-            if (!winId) throw new Error('No valid Antigravity window found (all were helper processes)');
++            if (!targetTitle) throw new Error('No valid Antigravity window found');
+ 
+             // Focus the window first so keystrokes land in the right place
+-            spawnSync(XDOTOOL_BIN, ['windowfocus', '--sync', winId], {
+-                encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-            });
+-            spawnSync('sleep', ['0.15'], { env: DISPLAY_ENV });
+-
+-            // Write to clipboard then paste — instant regardless of message length.
+-            // This replaces per-character xdotool type (N X11 events → 1 Ctrl+V event).
+-            spawnSync(XCLIP_BIN, ['-selection', 'clipboard'], {
+-                input: text, encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
++            spawnSync(OSASCRIPT_BIN, ['-e', `
++                tell application "System Events"
++                    tell process "Electron"
++                        set frontmost to true
++                        perform action "AXRaise" of window "${targetTitle}"
++                    end tell
++                end tell
++            `], { encoding: 'utf8', timeout: 3000 });
++            
++            // Write to clipboard
++            spawnSync(PBCOPY_BIN, [], {
++                input: text, encoding: 'utf8', timeout: 3000,
+             });
+-            spawnSync(XDOTOOL_BIN, ['key', '--clearmodifiers', '--window', winId, 'ctrl+v'], {
+-                encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-            });
+-
+-            // Press Enter to submit
+-            spawnSync('sleep', ['0.05'], { env: DISPLAY_ENV });
+-            spawnSync(XDOTOOL_BIN, ['key', '--window', winId, 'Return'], {
+-                encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-            });
+-
+-            resolve({ success: true, method: 'xclip-paste', winId });
++            
++            // Paste (Cmd+V) and Return
++            spawnSync(OSASCRIPT_BIN, ['-e', `
++                tell application "System Events"
++                    delay 0.1
++                    keystroke "v" using command down
++                    delay 0.05
++                    key code 36
++                end tell
++            `], { encoding: 'utf8', timeout: 3000 });
++
++            resolve({ success: true, method: 'pbcopy-paste', title: targetTitle });
+         } catch (e) {
+-            resolve({ success: false, error: e.message, method: 'xdotool-type' });
++            resolve({ success: false, error: e.message, method: 'osascript-type' });
+         }
+     });
+ }
+@@ -305,112 +297,90 @@ function xdotoolSend(text) {
+ setInterval(stream, 3000);
+ 
+ // ── Director-specific send ────────────────────────────────────────────────────
+-// Uses CDP to get the chat input bounding box, converts to absolute screen
+-// coordinates, uses xdotool to click precisely on the input, then types.
+-// Falls back to blind window-focus + type if CDP lookup fails.
++// Uses CDP to get the chat input bounding box, clicks precisely on the input
++// (though CDP + JS handles focus better without coordinate clicking on Mac).
++// Falls back to Cmd+L to focus the chat input in Antigravity.
+ async function directorSend(text, chatWsUrl) {
+-    // Find the right xdotool window ID (title-based, skipping helpers)
+-    const winResult = spawnSync(XDOTOOL_BIN, ['search', '--name', 'Antigravity'], {
+-        encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
++    // Find the right window name (title-based)
++    const winResult = spawnSync(OSASCRIPT_BIN, ['-e', 'tell application "System Events" to get name of every window of process "Electron"'], {
++        encoding: 'utf8', timeout: 3000,
+     });
+-    const winIds = (winResult.stdout || '').trim().split('\n').filter(Boolean);
+-    const windows = [];
+-    for (const wid of winIds) {
+-        const tr = spawnSync(XDOTOOL_BIN, ['getwindowname', wid], {
+-            encoding: 'utf8', env: DISPLAY_ENV, timeout: 2000,
+-        });
+-        const title = (tr.stdout || '').trim();
+-        if (title && title !== 'antigravity') windows.push({ wid, title });
+-    }
+-    if (!windows.length) return { success: false, error: 'No real Antigravity windows found' };
++    const winNames = (winResult.stdout || '').trim().split(', ').filter(n => n && n !== 'missing value');
++    if (!winNames.length) return { success: false, error: 'No real Antigravity windows found' };
+ 
+-    // Pick target window: match by CDP target title if available, else first real window
+-    let target = null;
++    let targetTitle = null;
+     if (chatWsUrl) {
+         const cdpTarget = cdpTargets.find(t => t.webSocketDebuggerUrl === chatWsUrl);
+         if (cdpTarget) {
+-            const cleanTitle = (cdpTarget.title || '').replace(/ - Antigravity.*$/, '').trim();
+-            target = windows.find(w => w.title.includes(cleanTitle));
++            const cleanTitle = (cdpTarget.title || '').replace(/ (?:-|—) Antigravity.*$/, '').trim();
++            targetTitle = winNames.find(w => w.includes(cleanTitle));
+         }
+     }
+-    if (!target) target = windows[0];
++    if (!targetTitle) targetTitle = winNames[0];
+ 
+-    const { wid: winId, title: winTitle } = target;
+-    console.log(`[/director] xdotool window: "${winTitle}" (wid=${winId})`);
++    console.log(`[/director] osascript window: "${targetTitle}"`);
+ 
+     try {
+-        // Get window's screen position so we can convert page → screen coords
+-        const geoResult = spawnSync(XDOTOOL_BIN, ['getwindowgeometry', winId], {
+-            encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-        });
+-        const geoMatch = (geoResult.stdout || '').match(/Position:\s*(\d+),(\d+)/);
+-        const winX = geoMatch ? parseInt(geoMatch[1]) : 0;
+-        const winY = geoMatch ? parseInt(geoMatch[2]) : 0;
+-
+-        // Get bounding box of the chat input via CDP (if we have a wsUrl)
+-        let clickX = null, clickY = null;
++        // We'll skip absolute clicking on Mac for now, as Antigravity usually focuses
++        // the input if we just use the Cmd+L hotkey to focus chat.
++        // Or we can rely on CDP to focus it directly before we paste.
+         if (chatWsUrl) {
+-            try {
+-                const CHAT_INPUT_SCRIPT = `(() => {
+-                    const SELS = [
+-                        '[class*="max-h-"][class*="rounded"][class*="cursor-text"]',
+-                        '.interactive-input-editor .view-line',
+-                        '.chat-input textarea',
+-                        'textarea',
+-                    ];
+-                    for (const sel of SELS) {
+-                        const el = document.querySelector(sel);
+-                        if (el && el.getBoundingClientRect().height > 5) {
+-                            const r = el.getBoundingClientRect();
+-                            return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+-                        }
+-                    }
+-                    return null;
+-                })()`;
+-
+-                const pos = await new Promise((res) => {
+-                    const ws = new WebSocket(chatWsUrl);
+-                    const t = setTimeout(() => { ws.close(); res(null); }, 4000);
+-                    ws.on('open', () => ws.send(JSON.stringify({id:1, method:'Runtime.evaluate', params:{expression:CHAT_INPUT_SCRIPT,returnByValue:true}})));
+-                    ws.on('message', d => { clearTimeout(t); try { res(JSON.parse(d)?.result?.result?.value); } catch(_){ res(null); } ws.close(); });
+-                    ws.on('error', () => { clearTimeout(t); res(null); });
+-                });
+-
+-                if (pos && pos.x && pos.y) {
+-                    clickX = winX + pos.x;
+-                    clickY = winY + pos.y;
+-                    console.log(`[/director] clicking at screen (${clickX}, ${clickY})`);
+-                }
+-            } catch (_) {}
++           try {
++               const FOCUS_SCRIPT = `(() => {
++                   const SELS = ['.inputarea','[contenteditable="true"]','textarea','.chat-input textarea'];
++                   for (const sel of SELS) {
++                       const el = document.querySelector(sel);
++                       if (el && el.getBoundingClientRect().height > 5) {
++                           el.focus();
++                           return true;
++                       }
++                   }
++                   return false;
++               })()`;
++               await new Promise((res) => {
++                   const ws = new WebSocket(chatWsUrl);
++                   const t = setTimeout(() => { ws.close(); res(null); }, 2000);
++                   ws.on('open', () => ws.send(JSON.stringify({id:1, method:'Runtime.evaluate', params:{expression:FOCUS_SCRIPT,returnByValue:true}})));
++                   ws.on('message', () => { clearTimeout(t); ws.close(); res(null); });
++                   ws.on('error', () => { clearTimeout(t); res(null); });
++               });
++           } catch (_) {}
+         }
+ 
+         // Focus window
+-        spawnSync(XDOTOOL_BIN, ['windowfocus', '--sync', winId], {
+-            encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-        });
+-        spawnSync('sleep', ['0.2'], { env: DISPLAY_ENV });
+-
+-        // Press Ctrl+Alt+I to focus the Antigravity chat input panel
+-        spawnSync(XDOTOOL_BIN, ['key', '--window', winId, 'ctrl+alt+i'], {
+-            encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-        });
+-        spawnSync('sleep', ['0.4'], { env: DISPLAY_ENV });
+-
+-        // Write to clipboard then paste — instant regardless of message length.
+-        // This replaces per-character xdotool type (N X11 events → 1 Ctrl+V event).
+-        spawnSync(XCLIP_BIN, ['-selection', 'clipboard'], {
+-            input: text, encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-        });
+-        spawnSync(XDOTOOL_BIN, ['key', '--clearmodifiers', '--window', winId, 'ctrl+v'], {
+-            encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+-        });
+-
+-        spawnSync('sleep', ['0.05'], { env: DISPLAY_ENV });
+-        spawnSync(XDOTOOL_BIN, ['key', '--window', winId, 'Return'], {
+-            encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
++        spawnSync(OSASCRIPT_BIN, ['-e', `
++            tell application "System Events"
++                tell process "Electron"
++                    set frontmost to true
++                    perform action "AXRaise" of window "${targetTitle}"
++                end tell
++            end tell
++        `], { encoding: 'utf8', timeout: 3000 });
++        
++        // Use Cmd+L (Chat: Focus) or Cmd+I (Inline Chat) if CDP focus failed
++        // We'll use Cmd+L for side panel chat focus as it's common
++        spawnSync(OSASCRIPT_BIN, ['-e', `
++            tell application "System Events"
++                delay 0.2
++                -- keystroke "l" using command down
++                delay 0.1
++            end tell
++        `], { encoding: 'utf8', timeout: 3000 });
++
++        // Write to clipboard then paste
++        spawnSync(PBCOPY_BIN, [], {
++            input: text, encoding: 'utf8', timeout: 3000,
+         });
+-
+-        return { success: true, method: 'director-xclip-paste', winId, title: winTitle };
++        
++        spawnSync(OSASCRIPT_BIN, ['-e', `
++            tell application "System Events"
++                keystroke "v" using command down
++                delay 0.05
++                key code 36
++            end tell
++        `], { encoding: 'utf8', timeout: 3000 });
++
++        return { success: true, method: 'director-pbcopy-paste', title: targetTitle };
+     } catch (e) {
+         return { success: false, error: e.message };
+     }
+@@ -425,8 +395,10 @@ const OLLAMA_IDLE_MS = 5 * 60 * 1000; // 5 minutes idle → stop
+ let ollamaIdleTimer  = null;
+ 
+ function isOllamaRunning() {
+-    const r = spawnSync('sudo', ['systemctl', 'is-active', 'ollama'], { encoding: 'utf8', timeout: 3000 });
+-    return (r.stdout || '').trim() === 'active';
++    try {
++        const r = spawnSync('curl', ['-s', 'http://127.0.0.1:11434/api/tags'], { encoding: 'utf8', timeout: 3000 });
++        return r.status === 0;
++    } catch (_) { return false; }
+ }
+ 
+ async function ensureOllamaUp() {
+@@ -434,22 +406,16 @@ async function ensureOllamaUp() {
+         scheduleOllamaShutdown(); // reset idle timer
+         return true;
+     }
+-    console.log('[ollama] Starting Ollama on-demand…');
+-    const start = spawnSync('sudo', ['systemctl', 'start', 'ollama'], { encoding: 'utf8', timeout: 15000 });
+-    if (start.status !== 0) {
+-        console.error('[ollama] Failed to start:', start.stderr);
+-        return false;
+-    }
++    console.log('[ollama] Starting Ollama on-demand (macOS)…');
++    const start = spawn('ollama', ['serve'], { detached: true, stdio: 'ignore', env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin' } });
++    start.unref();
++
+     // Wait up to 15s for Ollama to become ready
+     const deadline = Date.now() + 15000;
+     while (Date.now() < deadline) {
+         await new Promise(r => setTimeout(r, 800));
+         try {
+-            const ok = await new Promise((res) => {
+-                http.get('http://127.0.0.1:11434/api/tags', { timeout: 1500 }, (r) => { r.resume(); res(r.statusCode === 200); })
+-                    .on('error', () => res(false));
+-            });
+-            if (ok) { console.log('[ollama] Ready ✓'); scheduleOllamaShutdown(); return true; }
++            if (isOllamaRunning()) { console.log('[ollama] Ready ✓'); scheduleOllamaShutdown(); return true; }
+         } catch (_) {}
+     }
+     console.warn('[ollama] Timed out waiting for ready — continuing anyway');
+@@ -462,7 +428,7 @@ function scheduleOllamaShutdown() {
+     ollamaIdleTimer = setTimeout(() => {
+         if (!isOllamaRunning()) return;
+         console.log('[ollama] Idle timeout reached — stopping Ollama to free resources');
+-        spawnSync('sudo', ['systemctl', 'stop', 'ollama'], { encoding: 'utf8', timeout: 10000 });
++        spawnSync('pkill', ['-f', 'ollama serve'], { encoding: 'utf8', timeout: 10000 });
+         ollamaIdleTimer = null;
+     }, OLLAMA_IDLE_MS);
+ }
+@@ -481,8 +447,8 @@ app.get('/manager', (req, res) => {
+     const raw = mgr.title || '';
+     let label = raw
+         .replace(/^vscode-file:\/\/vscode-app.*/, 'Antigravity')
+-        .replace(/^(.+?) - Antigravity - .+$/, '$1')   // "OnPoint - Antigravity - file" → "OnPoint"
+-        .replace(/ - Antigravity$/, '')                  // "OnPoint - Antigravity" → "OnPoint"
++        .replace(/^(.+?) (?:-|—) Antigravity (?:-|—) .+$/, '$1')   // "OnPoint - Antigravity - file" → "OnPoint"
++        .replace(/ (?:-|—) Antigravity$/, '')                  // "OnPoint - Antigravity" → "OnPoint"
+         .trim() || 'Antigravity';
+ 
+     return res.json({
+@@ -501,7 +467,7 @@ app.post('/lock-manager', (req, res) => {
+     activeTargetUrl = mgr.webSocketDebuggerUrl;
+     lastFullText = ''; // reset diff
+     const raw = mgr.title || '';
+-    const label = raw.replace(/^(.+?) - Antigravity - .+$/, '$1').replace(/ - Antigravity$/, '').trim() || 'Antigravity';
++    const label = raw.replace(/^(.+?) (?:-|—) Antigravity (?:-|—) .+$/, '$1').replace(/ (?:-|—) Antigravity$/, '').trim() || 'Antigravity';
+     res.json({ success: true, wsUrl: activeTargetUrl, title: label });
+ });
+ 
+@@ -520,14 +486,15 @@ app.get('/favicon.svg', (req, res) => res.sendFile(join(__dirname, 'public', 'fa
+ // Live process monitor (htop equivalent)
+ app.get('/htop', (req, res) => {
+     try {
+-        // Get top 20 processes sorted by CPU usage
+-        const out = execSync("ps aux --sort=-%cpu | head -21").toString();
++        // BSD / macOS ps: use -aux -O %cpu -r
++        // Getting top 20 processes
++        const out = execSync("ps -axo user,pid,%cpu,%mem,vsz,rss,stat,time,command -r | head -21").toString();
+         const lines = out.split('\n').filter(Boolean);
+         const headers = lines[0].trim().split(/\s+/);
+         
+         const processes = lines.slice(1).map(line => {
+             const parts = line.trim().split(/\s+/);
+-            if (parts.length < 11) return null;
++            if (parts.length < 9) return null;
+             return {
+                 user: parts[0],
+                 pid: parts[1],
+@@ -535,9 +502,9 @@ app.get('/htop', (req, res) => {
+                 mem: parts[3],
+                 vsz: Math.round(parseInt(parts[4])/1024) + 'M',
+                 rss: Math.round(parseInt(parts[5])/1024) + 'M',
+-                stat: parts[7],
+-                time: parts[9],
+-                command: parts.slice(10).join(' ').slice(0, 100)
++                stat: parts[6],
++                time: parts[7],
++                command: parts.slice(8).join(' ').slice(0, 100)
+             };
+         }).filter(Boolean);
+ 
+@@ -566,7 +533,7 @@ app.get('/agent-proc-stats', (req, res) => {
+     const pidStr = String(req.query.pids || '').replace(/[^0-9,]/g, '');
+     if (!pidStr) return res.json({ procs: [] });
+     try {
+-        const out = execSync(`ps -p ${pidStr} -o pid=,pcpu=,pmem=,stat=,comm= --no-headers 2>/dev/null || true`).toString();
++        const out = execSync(`ps -p ${pidStr} -o pid=,pcpu=,pmem=,stat=,comm= 2>/dev/null || true`).toString();
+         const procs = out.split('\n').filter(Boolean).map(line => {
+             const parts = line.trim().split(/\s+/);
+             if (parts.length < 4) return null;
+@@ -578,8 +545,7 @@ app.get('/agent-proc-stats', (req, res) => {
+     }
+ });
+ 
+-// All Antigravity windows — merges CDP targets (streamable) + xdotool scan (visible-only)
+-// across all known displays: :99 (virtual/CDP) and :10 (real desktop)
++// All Antigravity windows — merges CDP targets (streamable) + osascript scan (visible-only)
+ app.get('/all-windows', (req, res) => {
+     const results = [];
+ 
+@@ -591,66 +557,59 @@ app.get('/all-windows', (req, res) => {
+     );
+     for (const t of cdpWins) {
+         const cleanT = t.title
+-            .replace(/ - Antigravity$/, '')
+-            .replace(/^(.+?) - Antigravity - /, '')
++            .replace(/ (?:-|—) Antigravity$/, '')
++            .replace(/^(.+?) (?:-|—) Antigravity (?:-|—) /, '')
+             .trim() || 'Antigravity';
+         results.push({
+             id: t.webSocketDebuggerUrl,
+             title: cleanT,
+             rawTitle: t.title,
+-            display: ':99',
++            display: ':0', // display doesn't matter on Mac
+             cdpReady: true,
+             wsUrl: t.webSocketDebuggerUrl,
+             active: t.webSocketDebuggerUrl === activeTargetUrl,
+         });
+     }
+ 
+-    // 2. Xdotool scan of real desktop (:10)
+-    const displays = [':10.0', ':10'];
+-    for (const disp of displays) {
+-        try {
+-            const widsRaw = execSync(
+-                `DISPLAY=${disp} xdotool search --name "Antigravity" 2>/dev/null || true`,
+-                { env: { ...process.env, DISPLAY: disp }, timeout: 3000, encoding: 'utf8' }
+-            ).trim();
+-            if (!widsRaw) continue;
+-            const wids = widsRaw.split('\n').filter(Boolean);
+-            for (const wid of wids) {
+-                try {
+-                    const title = execSync(
+-                        `DISPLAY=${disp} xdotool getwindowname ${wid} 2>/dev/null || true`,
+-                        { env: { ...process.env, DISPLAY: disp }, timeout: 2000, encoding: 'utf8' }
+-                    ).trim();
+-                    // Skip tiny utility windows (just "antigravity" lowercase)
+-                    if (!title || title === 'antigravity') continue;
+-                    // Skip if already in CDP list
+-                    const cleanT = title.replace(/ - Antigravity$/, '').trim();
+-                    if (results.find(r => r.rawTitle === title || r.title === cleanT)) continue;
+-                    results.push({
+-                        id: `xdotool:${disp}:${wid}`,
+-                        title: cleanT,
+-                        rawTitle: title,
+-                        display: disp,
+-                        cdpReady: false,
+-                        wid,
+-                        active: false,
+-                    });
+-                } catch (_) {}
++    // 2. Osascript scan of real desktop (Electron windows)
++    try {
++        const widsRaw = execSync(
++            `/usr/bin/osascript -e 'tell application "System Events" to get name of every window of process "Electron"' 2>/dev/null || true`,
++            { timeout: 3000, encoding: 'utf8' }
++        ).trim();
++        
++        if (widsRaw) {
++            const wids = widsRaw.split(', ').filter(n => n && n !== 'missing value');
++            for (let i = 0; i < wids.length; i++) {
++                const title = wids[i];
++                // Skip tiny utility windows
++                if (!title || title === 'antigravity') continue;
++                // Skip if already in CDP list
++                const cleanT = title.replace(/ (?:-|—) Antigravity$/, '').trim();
++                if (results.find(r => r.rawTitle === title || r.title === cleanT)) continue;
++                results.push({
++                    id: `osascript:${i}`,
++                    title: cleanT,
++                    rawTitle: title,
++                    display: ':0',
++                    cdpReady: false,
++                    wid: title, // use name as ID for Mac
++                    active: false,
++                });
+             }
+-            break; // found display, stop trying
+-        } catch (_) {}
+-    }
++        }
++    } catch (_) {}
+ 
+     res.json({ windows: results, cdpCount: cdpWins.length, totalCount: results.length });
+ });
+ 
+-// Focus a specific xdotool window (for :10 non-CDP windows)
++// Focus a specific window (using title on Mac)
+ app.post('/focus-window', (req, res) => {
+-    const { wid, display } = req.body || {};
++    const { wid } = req.body || {};
+     if (!wid) return res.json({ success: false, error: 'No window ID' });
+     try {
+-        const env = { ...process.env, DISPLAY: display || ':10.0' };
+-        execSync(`DISPLAY=${display || ':10.0'} xdotool windowactivate --sync ${wid}`, { env, timeout: 3000 });
++        execSync(`/usr/bin/osascript -e 'tell application "System Events" to tell process "Electron" to perform action "AXRaise" of window "${wid}"'`, { timeout: 3000 });
++        execSync(`/usr/bin/osascript -e 'tell application "System Events" to tell process "Electron" to set frontmost to true'`, { timeout: 3000 });
+         res.json({ success: true });
+     } catch(e) {
+         res.json({ success: false, error: e.message });
+@@ -666,19 +625,15 @@ app.post('/open-workspace', (req, res) => {
+     const path = req.body?.path;
+     if (!path) return res.json({ success: false, error: 'No path provided' });
+     try {
+-        // IMPORTANT: Do NOT pass --remote-debugging-port here.
+-        // VS Code IPC will detect the existing Antigravity instance via its Unix socket
+-        // (in XDG_RUNTIME_DIR) and open the new window within that process, so it
+-        // appears as a fresh CDP target on port 9222 automatically.
+-        const child = spawn('/usr/share/antigravity/antigravity',
++        // macOS: Use Electron wrapper directly to spawn a new window
++        const child = spawn('/Applications/Antigravity.app/Contents/MacOS/Electron',
+             ['--new-window', '--no-sandbox', '--disable-gpu', path],
+             {
+                 detached: true, stdio: 'ignore',
+                 env: {
+                     ...process.env,
+-                    DISPLAY: ':99',
+-                    HOME: '/home/tony',
+-                    XDG_RUNTIME_DIR: '/run/user/1000',
++                    HOME: '/Users/tony',
++                    PATH: '/usr/local/bin:/usr/bin:/bin'
+                 }
+             }
+         );
+@@ -695,8 +650,8 @@ app.get('/app-state', (req, res) => {
+         // Strip common Antigravity boilerplate: "<workspace> - Antigravity - <tab>"
+         // Keep: "<workspace>" or "<tab>" — whichever is most useful
+         let t = raw
+-            .replace(/ - Antigravity$/, '')      // trailing " - Antigravity"
+-            .replace(/^(.+?) - Antigravity - /, '') // "workspace - Antigravity - tabname" -> "tabname"
++            .replace(/ (?:-|—) Antigravity$/, '')      // trailing " - Antigravity"
++            .replace(/^(.+?) (?:-|—) Antigravity (?:-|—) /, '') // "workspace - Antigravity - tabname" -> "tabname"
+             .replace(/^vscode-file:.*/, 'Antigravity') // raw URL fallback
+             .trim();
+         return t || 'Antigravity';
+@@ -722,8 +677,8 @@ app.get('/ag-context', (req, res) => {
+     //        "Antigravity - server.js"                  → "server.js"
+     let clean = raw
+         .replace(/^vscode-file:\/\/vscode-app.*/, 'Antigravity')
+-        .replace(/^(.+?) - Antigravity - /, '')  // "workspace - Antigravity - tab" → "tab"
+-        .replace(/ - Antigravity$/, '')           // trailing " - Antigravity"
++        .replace(/^(.+?) (?:-|—) Antigravity (?:-|—) /, '')  // "workspace - Antigravity - tab" → "tab"
++        .replace(/ (?:-|—) Antigravity$/, '')           // trailing " - Antigravity"
+         .trim();
+     if (!clean || clean.startsWith('vscode-file')) clean = 'Antigravity';
+     res.json({ title: clean, type: 'window', context: clean });
+@@ -738,12 +693,12 @@ app.get('/snapshot', (req, res) => {
+ app.get('/workspaces', async (req, res) => {
+     try {
+         const dirs = [
+-            '/home/tony/OnPoint-Flutter',
+-            '/home/tony/OnPoint',
+-            '/home/tony/Antigravity',
+-            '/home/tony/Antigravity Phone bridge',
+-            '/home/tony/Old-AG-Bridge',
+-            '/home/tony/Desktop/AI-Projects',
++            '/Users/tony/OnPoint-Flutter',
++            '/Users/tony/OnPoint',
++            '/Users/tony/Antigravity',
++            '/Users/tony/Antigravity Phone bridge',
++            '/Users/tony/Old-AG-Bridge',
++            '/Users/tony/Desktop/AI-Projects',
+         ];
+         const existing = [];
+         for (const dir of dirs) {
+@@ -1393,7 +1348,7 @@ app.get('/ag-threat-model/latest', (req, res) => {
+ 
+ // POST /ag-ciso-report/run — trigger full security pipeline + CISO report
+ app.post('/ag-ciso-report/run', (req, res) => {
+-  const repo = req.body?.repo || '/home/tony/OnPoint-Flutter';
++  const repo = req.body?.repo || '/Users/tony/OnPoint-Flutter';
+   const name = req.body?.name || 'OnPoint-Flutter';
+   const child = spawn('node', [
+     '/ai-data/runtime/security-reports/index.js',
+@@ -1446,7 +1401,7 @@ app.post('/ag-architecture/run', (req, res) => {
+ 
+ // POST /ag-security-scan/run — trigger security scan for a specific repo
+ app.post('/ag-security-scan/run', (req, res) => {
+-  const repo = req.body?.repo || '/home/tony/OnPoint-Flutter';
++  const repo = req.body?.repo || '/Users/tony/OnPoint-Flutter';
+   const name = req.body?.name || 'OnPoint-Flutter';
+   const child = spawn('node', ['/ai-data/runtime/security/index.js', '--repo', repo, '--name', name], {
+     stdio: 'ignore', detached: true,
+@@ -1459,7 +1414,6 @@ app.post('/ag-security-scan/run', (req, res) => {
+ // ─── System Reboot ────────────────────────────────────────────────────────────
+ // POST /system-reboot — triggers a full system reboot.
+ // Requires { confirmed: true } in JSON body to prevent accidental calls.
+-// Uses sudo (passwordless via /etc/sudoers.d/tony-reboot).
+ app.post('/system-reboot', (req, res) => {
+     if (!req.body?.confirmed) {
+         return res.status(400).json({ success: false, error: 'Missing confirmed:true in body' });
+@@ -1468,10 +1422,11 @@ app.post('/system-reboot', (req, res) => {
+     res.json({ success: true, message: 'Rebooting server now. Reconnect in ~30 seconds.' });
+     // Delay slightly so the HTTP response can be sent before the machine goes down
+     setTimeout(() => {
+-        const child = spawn('sudo', ['systemctl', 'reboot'], {
++        // macOS: use sudo shutdown -r now (assumes passwordless sudo is configured, or use applescript)
++        const child = spawn('osascript', ['-e', 'tell application "System Events" to restart'], {
+             detached: true,
+             stdio: 'ignore',
+-            env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/tony' },
++            env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin' },
+         });
+         child.unref();
+     }, 1500);
+@@ -1479,13 +1434,16 @@ app.post('/system-reboot', (req, res) => {
+ 
+ // POST /restart-bridge — restarts just the onpoint-bridge service (faster recovery)
+ app.post('/restart-bridge', (req, res) => {
+-    console.log('[/restart-bridge] Restarting onpoint-bridge service...');
++    console.log('[/restart-bridge] Restarting bridge service via launchctl...');
+     res.json({ success: true, message: 'Bridge restart initiated. Reconnect in ~10 seconds.' });
+     setTimeout(() => {
+-        const child = spawn('sudo', ['systemctl', 'restart', 'onpoint-bridge'], {
++        // macOS: Launchctl restart sequence
++        const plistPath = `${process.env.HOME}/Library/LaunchAgents/com.onpoint.bridge.plist`;
++        execSync(`launchctl unload ${plistPath} 2>/dev/null || true`);
++        const child = spawn('launchctl', ['load', '-w', plistPath], {
+             detached: true,
+             stdio: 'ignore',
+-            env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/tony' },
++            env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/Users/tony' },
+         });
+         child.unref();
+     }, 500);

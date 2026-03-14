@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.onpoint.bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>NODE_PATH_PLACEHOLDER</string>
+        <string>BRIDGE_DIR_PLACEHOLDER/server.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>BRIDGE_DIR_PLACEHOLDER</string>
+
+    <!-- Wait 8 seconds after login so Antigravity CDP is up before bridge connects -->
+    <key>StartInterval</key>
+    <integer>0</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if it crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>BRIDGE_DIR_PLACEHOLDER/bridge.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>BRIDGE_DIR_PLACEHOLDER/bridge-error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>
