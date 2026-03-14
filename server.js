@@ -416,7 +416,59 @@ async function directorSend(text, chatWsUrl) {
     }
 }
 
+// ─── Ollama On-Demand Lifecycle ───────────────────────────────────────────────
+// Ollama is started only when the Director or /ai endpoint is invoked,
+// and automatically stopped after OLLAMA_IDLE_MS of inactivity (default 5 min).
+// This keeps RAM/CPU free when just bridging direct messages to Antigravity.
+
+const OLLAMA_IDLE_MS = 5 * 60 * 1000; // 5 minutes idle → stop
+let ollamaIdleTimer  = null;
+
+function isOllamaRunning() {
+    const r = spawnSync('sudo', ['systemctl', 'is-active', 'ollama'], { encoding: 'utf8', timeout: 3000 });
+    return (r.stdout || '').trim() === 'active';
+}
+
+async function ensureOllamaUp() {
+    if (isOllamaRunning()) {
+        scheduleOllamaShutdown(); // reset idle timer
+        return true;
+    }
+    console.log('[ollama] Starting Ollama on-demand…');
+    const start = spawnSync('sudo', ['systemctl', 'start', 'ollama'], { encoding: 'utf8', timeout: 15000 });
+    if (start.status !== 0) {
+        console.error('[ollama] Failed to start:', start.stderr);
+        return false;
+    }
+    // Wait up to 15s for Ollama to become ready
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 800));
+        try {
+            const ok = await new Promise((res) => {
+                http.get('http://127.0.0.1:11434/api/tags', { timeout: 1500 }, (r) => { r.resume(); res(r.statusCode === 200); })
+                    .on('error', () => res(false));
+            });
+            if (ok) { console.log('[ollama] Ready ✓'); scheduleOllamaShutdown(); return true; }
+        } catch (_) {}
+    }
+    console.warn('[ollama] Timed out waiting for ready — continuing anyway');
+    scheduleOllamaShutdown();
+    return false;
+}
+
+function scheduleOllamaShutdown() {
+    if (ollamaIdleTimer) clearTimeout(ollamaIdleTimer);
+    ollamaIdleTimer = setTimeout(() => {
+        if (!isOllamaRunning()) return;
+        console.log('[ollama] Idle timeout reached — stopping Ollama to free resources');
+        spawnSync('sudo', ['systemctl', 'stop', 'ollama'], { encoding: 'utf8', timeout: 10000 });
+        ollamaIdleTimer = null;
+    }, OLLAMA_IDLE_MS);
+}
+
 // ─── REST API ─────────────────────────────────────────────────────────────────
+
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
@@ -1030,6 +1082,9 @@ app.post('/ai', async (req, res) => {
         return res.status(400).json({ error: 'message is required' });
     }
 
+    // Ensure Ollama is running (starts it on-demand if stopped)
+    await ensureOllamaUp();
+
     const { spawn } = await import('child_process');
     const TIMEOUT_MS = ['planning','devops'].includes(taskType) ? 300_000 : (['coding','code'].includes(taskType) ? 180_000 : 150_000);
 
@@ -1131,6 +1186,14 @@ app.post('/director', async (req, res) => {
     const sendSSE = (type, data) => {
         if (useSSE) res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
     };
+
+    // Ensure Ollama is running before spawning ag-commander
+    if (!isOllamaRunning()) {
+        sendSSE('status', 'Starting AI engine… (first request takes ~10s)');
+        await ensureOllamaUp();
+    } else {
+        scheduleOllamaShutdown(); // reset idle timer
+    }
 
     const TIMEOUT_MS = taskType === 'planning' ? 300_000 : (taskType === 'coding' ? 180_000 : 120_000);
     const startTime  = Date.now();
