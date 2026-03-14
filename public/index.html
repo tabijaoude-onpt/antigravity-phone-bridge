@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <title>OnPoint AG-Bridge</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --orange: #FF6A00;
+            --orange-dark: #cc4e00;
+            --orange-dim: rgba(255, 106, 0, 0.15);
+            --ai: #7c3aed;
+            --ai-dim: rgba(124, 58, 237, 0.15);
+            --ai-border: rgba(124, 58, 237, 0.4);
+            --director: #f59e0b;
+            --director-dim: rgba(245, 158, 11, 0.12);
+            --director-border: rgba(245, 158, 11, 0.4);
+            --teal: #00c9a7;
+            --teal-dim: rgba(0, 201, 167, 0.12);
+            --teal-border: rgba(0, 201, 167, 0.35);
+            --bg: #0a0a0a;
+            --surface: #141414;
+            --surface2: #1a1a1a;
+            --border: rgba(255, 106, 0, 0.25);
+            --text: #ffffff;
+            --text-dim: rgba(255, 255, 255, 0.45);
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, 'SF Pro Display', 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+            overflow: hidden;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────── */
+        header {
+            background: linear-gradient(135deg, #1a0a00 0%, #2d1200 50%, #1a0800 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 12px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        body.mode-commander header {
+            background: linear-gradient(135deg, #0d0520 0%, #1a0a38 50%, #0d051e 100%);
+            border-bottom-color: var(--ai-border);
+        }
+
+        body.mode-director header {
+            background: linear-gradient(135deg, #1a1000 0%, #2e2000 50%, #1a1000 100%);
+            border-bottom-color: var(--director-border);
+        }
+
+        body.mode-runtime header {
+            background: linear-gradient(135deg, #001a15 0%, #002e23 50%, #001a15 100%);
+            border-bottom-color: var(--teal-border);
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-mark {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            flex-shrink: 0;
+            object-fit: contain;
+        }
+
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+            flex-shrink: 0;
+        }
+
+        .brand-text .name { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
+        .brand-text .sub  { font-size: 10px; font-weight: 500; color: var(--orange); letter-spacing: 0.3px; }
+        body.mode-commander .brand-text .sub { color: #a78bfa; }
+        body.mode-runtime   .brand-text .sub { color: var(--teal); }
+        body.mode-director  .brand-text .sub { color: var(--director); }
+
+        /* Active context pill */
+        #activeContext {
+            flex: 1;
+            font-size: 10px;
+            color: var(--text-dim);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 2px 8px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            cursor: default;
+            max-width: 200px;
+        }
+        #activeContext.has-context { color: var(--orange); border-color: var(--border); }
+        body.mode-commander #activeContext { color: #a78bfa; border-color: var(--ai-border); }
+        body.mode-runtime   #activeContext { color: var(--teal); border-color: var(--teal-border); }
+
+        /* ── Target Selector ─────────────────────────────────────────────── */
+        .target-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .target-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .target-pills { display: flex; gap: 6px; flex-shrink: 0; }
+
+        .target-pill {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+            border: 1px solid #333;
+            background: transparent;
+            color: var(--text-dim);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+
+        .target-pill:hover { border-color: #555; color: var(--text); }
+        .target-pill.active-browser  { border-color: var(--orange); color: var(--orange); background: var(--orange-dim); }
+        .target-pill.active-commander { border-color: var(--ai); color: #a78bfa; background: var(--ai-dim); }
+        .target-pill.active-runtime   { border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
+        .target-pill.active-director  { border-color: var(--director); color: var(--director); background: var(--director-dim); }
+
+        select#winList {
+            flex: 1;
+            min-width: 0;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text);
+            border: 1px solid #333;
+            padding: 5px 8px;
+            font-size: 12px;
+            border-radius: 8px;
+            outline: none;
+            font-family: inherit;
+            height: 30px;
+            cursor: pointer;
+            max-width: 200px;
+        }
+
+        select#winList:focus { border-color: var(--orange); }
+        body.mode-runtime   select#winList { display: none; }
+        body.mode-commander select#winList { display: none; }
+        body.mode-director  select#winList { display: none; }
+        body.mode-browser   select#winList { display: none; }
+        select#winList { display: none; } /* hidden — pills replace it */
+
+        /* ── Window Pills (Antigravity mode nav) ─────────────────────────── */
+        #winPillRow {
+            display: none; /* shown only in browser mode */
+            gap: 6px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            padding: 4px 0 2px;
+            border-top: 1px solid rgba(255,106,0,0.12);
+        }
+        #winPillRow::-webkit-scrollbar { display: none; }
+        body.mode-browser #winPillRow { display: flex; }
+
+        .win-pill {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 20px;
+            border: 1px solid #333;
+            background: transparent;
+            color: var(--text-dim);
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            font-family: inherit;
+            transition: all 0.15s;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .win-pill:active { opacity: 0.7; }
+        .win-pill.active {
+            border-color: var(--orange);
+            color: var(--orange);
+            background: var(--orange-dim);
+        }
+        .win-pill.no-windows {
+            color: #555;
+            border-color: #222;
+            cursor: default;
+            font-style: italic;
+        }
+        .win-pill.desktop-only {
+            border-style: dashed;
+            color: rgba(255,255,255,0.5);
+            border-color: #444;
+        }
+        .win-pill.desktop-only:hover { background: rgba(255,255,255,0.05); border-color: #666; }
+        .win-pill.workspace {
+            border-style: dashed;
+            color: rgba(255,255,255,0.4);
+            border-color: #333;
+        }
+        .win-pill.workspace:hover {
+            background: rgba(255,255,255,0.05);
+            border-color: #555;
+            color: rgba(255,255,255,0.8);
+        }
+
+        #heartbeat {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .hb-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+
+        #hbLabel { font-size: 10px; font-weight: 700; color: #22c55e; letter-spacing: 1px; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        /* ── Content area ───────────────────────────────────────────────── */
+        #content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        pre#stream {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 13px;
+            line-height: 1.6;
+            font-family: inherit;
+            flex: 1;
+        }
+
+        /* Commander chat bubbles */
+        #aiChat { display: none; flex-direction: column; gap: 12px; width: 100%; }
+        body.mode-commander #stream  { display: none; }
+        body.mode-commander #aiChat  { display: flex; }
+        body.mode-runtime   #stream  { display: none; }
+        body.mode-runtime   #aiChat  { display: none; }
+        body.mode-director  #stream  { display: none; }
+        body.mode-director  #aiChat  { display: none; }
+
+        /* Director chat */
+        #directorChat { display: none; flex-direction: column; gap: 12px; width: 100%; }
+        body.mode-director #directorChat { display: flex; }
+        body.mode-director #runtimePanel { display: none; }
+
+        .dir-bubble-user { align-self: flex-end; background: var(--director); color: #000; border-bottom-right-radius: 4px; max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; word-break: break-word; font-weight: 600; }
+        .dir-bubble-ag { align-self: flex-start; background: #1f1800; color: #fde68a; border: 1px solid var(--director-border); border-bottom-left-radius: 4px; max-width: 92%; padding: 10px 14px; border-radius: 16px; font-size: 13px; line-height: 1.6; word-break: break-word; white-space: pre-wrap; }
+        .dir-bubble-ag strong { display: block; font-size: 10px; color: var(--director); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+        .dir-bubble-status { align-self: flex-start; color: var(--director); font-size: 12px; padding: 6px 10px; animation: blink 1.2s infinite; opacity: 0.8; }
+
+        .dir-mode-row { display: none; gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-top: 1px solid #2a1f00; flex-shrink: 0; scrollbar-width: none; align-items: center; }
+        .dir-mode-row::-webkit-scrollbar { display: none; }
+        body.mode-director .dir-mode-row { display: flex; }
+        .dir-mode-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; }
+        .dir-mode-btn { background: transparent; color: var(--text-dim); border: 1px solid #333; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit; transition: all 0.15s; }
+        .dir-mode-btn.active { background: var(--director-dim); color: var(--director); border-color: var(--director-border); }
+
+        .dir-quick-actions { display: none; gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-top: 1px solid #2a1f00; flex-shrink: 0; scrollbar-width: none; }
+        .dir-quick-actions::-webkit-scrollbar { display: none; }
+        body.mode-director .dir-quick-actions { display: flex; }
+        .dir-qa-btn { background: var(--director-dim); color: var(--director); border: 1px solid var(--director-border); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit; transition: all 0.15s; }
+        .dir-qa-btn:active { background: rgba(245,158,11,0.25); }
+
+        .bubble { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+        .bubble-user { align-self: flex-end; background: var(--ai); color: #fff; border-bottom-right-radius: 4px; }
+        .bubble-ai { align-self: flex-start; background: #1f1f2e; color: #e2e8f0; border: 1px solid var(--ai-border); border-bottom-left-radius: 4px; }
+        .bubble-ai strong { display: block; font-size: 10px; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .bubble-thinking { align-self: flex-start; color: #a78bfa; font-size: 13px; padding: 8px 14px; animation: blink 1.2s infinite; }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ── RUNTIME PANEL ───────────────────────────────────────────────── */
+        #runtimePanel {
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            padding-bottom: 8px;
+        }
+        body.mode-runtime #runtimePanel { display: flex; }
+
+        .rt-section {
+            background: var(--surface);
+            border: 1px solid #222;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .rt-section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: var(--surface2);
+            border-bottom: 1px solid #222;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .rt-section-header .rt-icon { font-size: 14px; }
+        .rt-section-header .rt-title { flex: 1; }
+        .rt-section-header .rt-badge {
+            font-size: 10px;
+            background: var(--teal-dim);
+            color: var(--teal);
+            border: 1px solid var(--teal-border);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 700;
+        }
+        .rt-section-header .rt-badge.warn { background: rgba(255,180,0,0.12); color: #ffb400; border-color: rgba(255,180,0,0.3); }
+        .rt-section-header .rt-badge.err  { background: rgba(255,60,60,0.12);  color: #ff4444; border-color: rgba(255,60,60,0.3);  }
+
+        .rt-rows { padding: 0; }
+
+        .rt-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 14px;
+            border-bottom: 1px solid #1c1c1c;
+            font-size: 13px;
+        }
+        .rt-row:last-child { border-bottom: none; }
+
+        .rt-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: #333;
+        }
+        .rt-dot.green  { background: #22c55e; box-shadow: 0 0 6px #22c55e66; }
+        .rt-dot.yellow { background: #ffb400; }
+        .rt-dot.red    { background: #ff4444; }
+        .rt-dot.dim    { background: #444; }
+
+        .rt-name  { flex: 1; font-weight: 600; color: var(--text); }
+        .rt-meta  { font-size: 11px; color: var(--text-dim); }
+        .rt-value { font-size: 12px; font-weight: 700; color: var(--teal); font-variant-numeric: tabular-nums; }
+
+        .rt-empty { padding: 14px; font-size: 13px; color: var(--text-dim); text-align: center; }
+
+        /* memory entries */
+        .mem-entry {
+            padding: 10px 14px;
+            border-bottom: 1px solid #1c1c1c;
+        }
+        .mem-entry:last-child { border-bottom: none; }
+        .mem-task    { font-size: 12px; color: var(--text); font-weight: 600; margin-bottom: 3px; }
+        .mem-agents  { font-size: 11px; color: var(--teal); }
+        .mem-ts      { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+        /* refresh button */
+        .rt-refresh-btn {
+            background: var(--teal-dim);
+            border: 1px solid var(--teal-border);
+            color: var(--teal);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            margin-left: auto;
+        }
+
+        /* system stats grid */
+        .sys-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+        }
+        .sys-cell {
+            padding: 10px 14px;
+            border-right: 1px solid #1c1c1c;
+            border-bottom: 1px solid #1c1c1c;
+        }
+        .sys-cell:nth-child(even) { border-right: none; }
+        .sys-cell:nth-last-child(-n+2) { border-bottom: none; }
+        .sys-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .sys-val   { font-size: 15px; font-weight: 700; color: var(--text); }
+        .sys-sub   { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+
+        /* ── Scroll btn ──────────────────────────────────────────────────── */
+        #scrollBtn {
+            display: none;
+            position: fixed;
+            bottom: 90px;
+            right: 14px;
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            background: var(--orange);
+            color: #000;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            z-index: 10;
+            font-family: inherit;
+        }
+
+        /* ── Dialog bar ──────────────────────────────────────────────────── */
+        #dialogBar { background: #1a0a00; border-top: 1px solid var(--border); font-size: 13px; flex-shrink: 0; }
+        .dialog-header { padding: 8px 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .dialog-label  { font-size: 11px; font-weight: 700; color: var(--orange); text-transform: uppercase; letter-spacing: 1px; }
+        .dialog-prompt { flex: 1; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dialog-collapse-icon { color: var(--orange); font-size: 14px; flex-shrink: 0; }
+        #dialogBody { padding: 0 12px 10px; }
+        #dialogBtns { display: flex; flex-wrap: wrap; gap: 6px; }
+        .dialog-btn { background: var(--orange-dim); border: 1px solid var(--border); color: var(--orange); padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+
+        /* ── Quick actions ───────────────────────────────────────────────── */
+        .quick-actions    { display: flex; gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-top: 1px solid #1a1a1a; flex-shrink: 0; scrollbar-width: none; }
+        .quick-actions::-webkit-scrollbar { display: none; }
+        body.mode-commander .quick-actions { display: none; }
+        body.mode-commander #dialogBar     { display: none !important; }
+        body.mode-director  .quick-actions { display: none; }
+        body.mode-director  #dialogBar     { display: none !important; }
+        body.mode-runtime   .quick-actions { display: none; }
+        body.mode-runtime   #dialogBar     { display: none !important; }
+
+        .qa-btn { background: rgba(255,255,255,0.05); color: var(--text-dim); border: 1px solid #2a2a2a; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit; transition: all 0.15s; }
+        .qa-btn:active { background: var(--orange-dim); border-color: var(--border); color: var(--orange); }
+
+        .ai-quick-actions { display: none; gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-top: 1px solid #1a1a2e; flex-shrink: 0; scrollbar-width: none; }
+        .ai-quick-actions::-webkit-scrollbar { display: none; }
+        body.mode-commander .ai-quick-actions { display: flex; }
+
+        .ai-qa-btn { background: var(--ai-dim); color: #a78bfa; border: 1px solid var(--ai-border); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit; transition: all 0.15s; }
+        .ai-qa-btn:active { background: rgba(124, 58, 237, 0.35); }
+
+        /* ── Runtime quick actions ───────────────────────────────────────── */
+        .rt-quick-actions { display: none; gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-top: 1px solid #0f2520; flex-shrink: 0; scrollbar-width: none; }
+        .rt-quick-actions::-webkit-scrollbar { display: none; }
+        body.mode-runtime .rt-quick-actions { display: flex; }
+
+        .rt-qa-btn { background: var(--teal-dim); color: var(--teal); border: 1px solid var(--teal-border); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit; transition: all 0.15s; }
+        .rt-qa-btn:active { background: rgba(0, 201, 167, 0.25); }
+
+        /* ── Footer ──────────────────────────────────────────────────────── */
+        footer { background: var(--surface); border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end; }
+        body.mode-commander footer { border-top-color: var(--ai-border); }
+        body.mode-director  footer { border-top-color: var(--director-border); }
+        body.mode-runtime   footer { border-top-color: var(--teal-border); }
+
+        .file-upload-btn { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid #333; width: 50px; height: 60px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; flex-shrink: 0; transition: border-color 0.2s, background 0.2s; }
+        .file-upload-btn:hover { border-color: var(--orange); background: var(--orange-dim); }
+        body.mode-commander .file-upload-btn:hover { border-color: var(--ai); background: var(--ai-dim); }
+        body.mode-runtime   .file-upload-btn { display: none; }
+        .file-upload-btn:active { opacity: 0.7; }
+        .file-upload-btn input[type="file"] { display: none; }
+
+        textarea#txt { flex: 1; background: var(--bg); color: var(--text); border: 1px solid #333; padding: 10px 12px; font-size: 15px; border-radius: 10px; height: 60px; resize: none; outline: none; font-family: inherit; line-height: 1.4; transition: border-color 0.2s; }
+        textarea#txt:focus { border-color: var(--orange); }
+        body.mode-commander textarea#txt:focus { border-color: var(--ai); }
+        body.mode-director  textarea#txt:focus { border-color: var(--director); }
+        body.mode-runtime   textarea#txt { display: none; }
+
+        button#sendBtn { background: var(--orange); color: #000; border: none; padding: 0 18px; height: 60px; font-weight: 700; cursor: pointer; border-radius: 10px; font-size: 20px; transition: opacity 0.15s, background 0.2s; flex-shrink: 0; font-family: inherit; }
+        body.mode-commander button#sendBtn { background: var(--ai); color: #fff; }
+        body.mode-director  button#sendBtn { background: var(--director); color: #000; }
+        body.mode-runtime   button#sendBtn { display: none; }
+        button#sendBtn:active { opacity: 0.7; }
+        button#sendBtn:disabled { opacity: 0.4; cursor: default; }
+
+        /* runtime refresh button fills footer */
+        #rtRefreshFooter { display: none; width: 100%; height: 60px; background: var(--teal-dim); border: 1px solid var(--teal-border); color: var(--teal); font-size: 15px; font-weight: 700; border-radius: 10px; cursor: pointer; font-family: inherit; letter-spacing: 0.5px; }
+        body.mode-runtime #rtRefreshFooter { display: block; }
+
+        /* ── Stats Modal ─────────────────────────────────────────────────── */
+        #statsModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; align-items: center; justify-content: center; padding: 24px; }
+        #statsModal.open { display: flex; }
+        .stats-card { background: #161616; border: 1px solid var(--border); border-radius: 16px; padding: 20px; width: 100%; max-width: 340px; }
+        .stats-card h2 { font-size: 15px; color: var(--orange); margin-bottom: 14px; letter-spacing: 1px; text-transform: uppercase; }
+        .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #222; font-size: 13px; }
+        .stat-row:last-of-type { border-bottom: none; }
+        .stat-label { color: var(--text-dim); }
+        .stat-value { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+        .stats-close { margin-top: 16px; width: 100%; background: var(--orange-dim); border: 1px solid var(--border); color: var(--orange); padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .stats-action-row { display: flex; gap: 8px; margin-top: 12px; }
+        .stats-action-btn { flex: 1; padding: 10px 6px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; border: 1px solid #444; background: rgba(255,255,255,0.06); color: #ccc; transition: background 0.15s; }
+        .stats-action-btn:active { opacity: 0.7; }
+        .stats-action-btn.danger { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #f87171; }
+        .stats-action-btn.warn { background: rgba(251,146,60,0.12); border-color: rgba(251,146,60,0.4); color: #fb923c; }
+
+        /* Reboot Confirm Modal */
+        #rebootModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 500; align-items: center; justify-content: center; padding: 24px; backdrop-filter: blur(6px); }
+        #rebootModal.open { display: flex; }
+        .reboot-card { background: #1a0000; border: 1px solid rgba(239,68,68,0.4); border-radius: 16px; padding: 24px; width: 100%; max-width: 320px; text-align: center; }
+        .reboot-icon { font-size: 40px; margin-bottom: 12px; }
+        .reboot-title { font-size: 17px; font-weight: 700; color: #f87171; margin-bottom: 8px; }
+        .reboot-msg { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; line-height: 1.5; }
+        .reboot-btns { display: flex; gap: 10px; }
+        .reboot-cancel { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #444; background: rgba(255,255,255,0.05); color: #aaa; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .reboot-confirm { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.18); color: #f87171; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background 0.15s; }
+        .reboot-confirm:active { background: rgba(239,68,68,0.35); }
+        .reboot-confirm:disabled { opacity: 0.4; cursor: default; }
+        .reboot-spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(239,68,68,0.3); border-top-color: #f87171; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Htop Modal */
+        #htopModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2000; padding: 20px; flex-direction: column; backdrop-filter: blur(4px); }
+        #htopModal.open { display: flex; }
+        .htop-container { background: #0c0c0c; border: 1px solid #333; border-radius: 12px; width: 100%; max-width: 900px; margin: 0 auto; height: 100%; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; }
+        .htop-header { background: #1a1a1a; padding: 12px 16px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .htop-title { color: #4ade80; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
+        .htop-title::before { content: ''; width: 8px; height: 8px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80; animation: pulse 2s infinite; }
+        .htop-close { background: none; border: none; color: #888; cursor: pointer; font-size: 20px; transition: color 0.15s; }
+        .htop-close:hover { color: #ef4444; }
+        .htop-sysinfo { padding: 12px 16px; background: #111; border-bottom: 1px solid #222; display: flex; gap: 24px; color: #aaa; }
+        .htop-sysinfo span { color: #fff; font-weight: 600; }
+        .htop-table-wrap { flex: 1; overflow-y: auto; padding: 0; }
+        .htop-table { width: 100%; border-collapse: collapse; text-align: left; }
+        .htop-table th { background: #161616; color: #666; padding: 8px 16px; font-weight: 600; position: sticky; top: 0; z-index: 10; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #333; }
+        .htop-table td { padding: 6px 16px; border-bottom: 1px solid #1a1a1a; color: #ccc; white-space: nowrap; }
+        .htop-table tr:hover td { background: #1a1a1a; }
+        .htop-cmd { color: #facc15; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+        .htop-cpu { color: #ef4444; font-weight: 600; }
+        .htop-mem { color: #60a5fa; }
+    </style>
+</head>
+
+<body>
+    <!-- Htop Modal overlay -->
+    <div id="htopModal">
+        <div class="htop-container">
+            <div class="htop-header">
+                <div class="htop-title">Live System Monitor</div>
+                <button class="htop-close" onclick="toggleHtop()">×</button>
+            </div>
+            <div class="htop-sysinfo" id="htopSysInfo">
+                <div>Load: <span>—</span></div>
+                <div>Memory: <span>— / — MB</span></div>
+            </div>
+            <div class="htop-table-wrap">
+                <table class="htop-table">
+                    <thead><tr><th>PID</th><th>USER</th><th style="color:#ef4444">CPU%</th><th style="color:#60a5fa">MEM%</th><th>VSZ</th><th>RSS</th><th>STAT</th><th>TIME</th><th>COMMAND</th></tr></thead>
+                    <tbody id="htopBody">
+                        <tr><td colspan="9" style="text-align:center;padding:40px;color:#666;">Loading processes...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <header>
+        <div class="header-top">
+            <img src="logo.png" class="logo-mark" alt="OnPoint" onerror="this.style.display='none'">
+            <div class="brand-text">
+                <span class="name">OnPoint</span>
+                <span class="sub" id="modeLabel">AG-Bridge</span>
+            </div>
+
+            <!-- hidden select kept for changeWin() compatibility -->
+            <select id="winList" onchange="changeWin(this.value)" style="display:none"></select>
+
+            <!-- Active context: shows in all modes -->
+            <span id="activeContext" style="margin-left:auto;">—</span>
+
+            <div id="heartbeat" onclick="toggleStats()">
+                <div class="hb-dot" id="hbDot"></div>
+                <span id="hbLabel">LIVE</span>
+            </div>
+        </div>
+
+        <!-- ── Agent Manager: always-pinned primary chat window ──────────── -->
+        <div class="manager-row">
+            <button class="manager-pill" id="managerPill" onclick="lockToManager()" title="Lock to Agent Manager window and chat here">🤖 Scanning for Agent Manager…</button>
+            <span class="manager-status" id="managerStatus" onclick="lockToManager()">—</span>
+            <button onclick="clearStream()" title="Clear chat display" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#666;font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;flex-shrink:0;font-family:inherit;">✕ Clear</button>
+        </div>
+
+        <!-- Window pills (secondary — other open windows) -->
+        <div id="winPillRow">
+            <span class="win-pill no-windows" id="winPillPlaceholder">Scanning…</span>
+        </div>
+
+        <!-- Mode selector pills -->
+        <div class="target-row">
+            <span class="target-label">Mode:</span>
+            <div class="target-pills">
+                <button class="target-pill active-browser"  id="pill-browser"   onclick="setMode('browser')"  >🤖 Antigravity</button>
+                <button class="target-pill"                 id="pill-director"  onclick="setMode('director')" >🎯 Director</button>
+                <button class="target-pill"                 id="pill-commander" onclick="setMode('commander')">⚡ AI Chat</button>
+                <button class="target-pill"                 id="pill-runtime"   onclick="setMode('runtime')"  >🤖 Agents</button>
+                <button class="target-pill"                 id="pill-htop"      onclick="toggleHtop()"        style="background:#4ade80;color:#000;font-weight:700;">💻 Htop</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Content area -->
+    <div id="content">
+        <pre id="stream" style="color:rgba(255,255,255,0.4)">Connecting to Antigravity…</pre>
+        <div id="aiChat"></div>
+        <div id="directorChat"></div>
+
+        <!-- ══ RUNTIME PANEL ══════════════════════════════════════════════ -->
+        <div id="runtimePanel">
+
+            <!-- Agent Activity -->
+            <div class="rt-section">
+                <div class="rt-section-header">
+                    <span class="rt-icon">🤖</span>
+                    <span class="rt-title">Agent Activity</span>
+                    <span class="rt-badge" id="agentBadge">—</span>
+                </div>
+                <div class="rt-rows" id="agentRows">
+                    <div class="rt-empty">Loading agents…</div>
+                </div>
+            </div>
+
+            <!-- Task Queue -->
+            <div class="rt-section">
+                <div class="rt-section-header">
+                    <span class="rt-icon">📋</span>
+                    <span class="rt-title">Task Queue</span>
+                    <span class="rt-badge" id="queueBadge">—</span>
+                </div>
+                <div class="sys-grid" id="queueGrid">
+                    <div class="sys-cell"><div class="sys-label">Pending</div><div class="sys-val" id="q-pending">—</div></div>
+                    <div class="sys-cell"><div class="sys-label">Active</div><div class="sys-val" id="q-active">—</div></div>
+                    <div class="sys-cell"><div class="sys-label">Completed</div><div class="sys-val" id="q-done">—</div></div>
+                    <div class="sys-cell"><div class="sys-label">Failed</div><div class="sys-val" id="q-failed">—</div></div>
+                </div>
+            </div>
+
+            <!-- LLM Models -->
+            <div class="rt-section">
+                <div class="rt-section-header">
+                    <span class="rt-icon">🧠</span>
+                    <span class="rt-title">LLM Models</span>
+                    <span class="rt-badge" id="modelBadge">—</span>
+                </div>
+                <div class="rt-rows" id="modelRows">
+                    <div class="rt-empty">Loading models…</div>
+                </div>
+            </div>
+
+            <!-- System Health -->
+            <div class="rt-section">
+                <div class="rt-section-header" style="justify-content: space-between;">
+                    <div style="display:flex;align-items:center;">
+                        <span class="rt-icon">⚡</span>
+                        <span class="rt-title">System Health</span>
+                    </div>
+                    <button class="rt-qa-btn" onclick="toggleHtop()" style="font-size:10px;padding:3px 8px;background:#4ade80;color:#000;font-weight:700;margin:0;">💻 Live htop</button>
+                </div>
+                <div class="sys-grid">
+                    <div class="sys-cell"><div class="sys-label">CPU</div><div class="sys-val" id="sys-cpu">—</div><div class="sys-sub" id="sys-cpu-sub"></div></div>
+                    <div class="sys-cell"><div class="sys-label">RAM Free</div><div class="sys-val" id="sys-ram">—</div><div class="sys-sub" id="sys-ram-sub"></div></div>
+                    <div class="sys-cell"><div class="sys-label">Uptime</div><div class="sys-val" id="sys-uptime">—</div></div>
+                    <div class="sys-cell"><div class="sys-label">Memory Records</div><div class="sys-val" id="sys-mem-rec">—</div></div>
+                </div>
+            </div>
+
+            <!-- Recent Memory -->
+            <div class="rt-section">
+                <div class="rt-section-header">
+                    <span class="rt-icon">💾</span>
+                    <span class="rt-title">Recent Memory</span>
+                    <span class="rt-badge" id="memBadge">—</span>
+                </div>
+                <div id="memRows">
+                    <div class="rt-empty">Loading memory…</div>
+                </div>
+            </div>
+
+            <!-- Security Posture -->
+            <div class="rt-section" id="securitySection">
+                <div class="rt-section-header">
+                    <span class="rt-icon">🛡</span>
+                    <span class="rt-title">Security Posture</span>
+                    <span class="rt-badge" id="securityBadge">—</span>
+                    <button class="rt-refresh-btn" onclick="loadSecurity()">⟳</button>
+                </div>
+                <div id="securityContent">
+                    <div class="rt-empty">Loading security posture…</div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid #1c1c1c;">
+                    <button class="rt-qa-btn" id="cisoRunBtn" onclick="generateCisoReport()" style="font-size:11px;padding:5px 10px;">⚡ Generate CISO Report</button>
+                    <a href="/report" target="_blank"><button class="rt-qa-btn" style="font-size:11px;padding:5px 10px;background:#4f46e5;color:#fff;">📄 View Report</button></a>
+                    <button class="rt-qa-btn" onclick="downloadReport()" style="font-size:11px;padding:5px 10px;">⬇ Download Report</button>
+                    <a href="/ag-threat-model/latest" target="_blank"><button class="rt-qa-btn" style="font-size:11px;padding:5px 10px;">🧩 Threat Model</button></a>
+                    <button class="rt-qa-btn" onclick="viewVulns()" style="font-size:11px;padding:5px 10px;">🔍 Vulnerabilities</button>
+                </div>
+            </div>
+
+            <!-- Architecture Intelligence -->
+            <div class="rt-section" id="archSection">
+                <div class="rt-section-header">
+                    <span class="rt-icon">🏗</span>
+                    <span class="rt-title">Architecture Intelligence</span>
+                    <span class="rt-badge" id="archBadge">—</span>
+                    <button class="rt-refresh-btn" onclick="loadArchitecture()">⟳</button>
+                </div>
+                <div id="archContent">
+                    <div class="rt-empty">Loading architecture data…</div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid #1c1c1c;">
+                    <button class="rt-qa-btn" id="archRunBtn" onclick="runArchAnalysis()" style="font-size:11px;padding:5px 10px;">🏗 Run Analysis</button>
+                    <a href="/ag-architecture" target="_blank"><button class="rt-qa-btn" style="font-size:11px;padding:5px 10px;">📄 Full Report</button></a>
+                    <a href="/ag-risk-score" target="_blank"><button class="rt-qa-btn" style="font-size:11px;padding:5px 10px;">📊 Risk Score</button></a>
+                </div>
+            </div>
+
+        </div>
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+    </div>
+
+    <button id="scrollBtn" onclick="snapToBottom()">↓</button>
+
+    <!-- Permission/dialog bar (browser mode only) -->
+    <div id="dialogBar" style="display:none">
+        <div class="dialog-header" onclick="toggleDialogBar()">
+            <span class="dialog-label">⚡ ANTIGRAVITY IS ASKING</span>
+            <span id="dialogPrompt" class="dialog-prompt"></span>
+            <span id="dialogCollapseIcon" class="dialog-collapse-icon">▾</span>
+        </div>
+        <div id="dialogBody">
+            <div id="dialogBtns"></div>
+        </div>
+    </div>
+
+    <!-- Quick actions — browser mode -->
+    <div class="quick-actions">
+        <button class="qa-btn" onclick="quickSend('Yes, proceed')">✓ Proceed</button>
+        <button class="qa-btn" onclick="quickSend('Yes')">Yes</button>
+        <button class="qa-btn" onclick="quickSend('Accept')">Accept</button>
+        <button class="qa-btn" onclick="quickSend('Allow access')">Allow</button>
+        <button class="qa-btn" onclick="quickSend('Approve')">Approve</button>
+        <button class="qa-btn" onclick="quickSend('No')">No</button>
+        <button class="qa-btn" onclick="quickSend('Cancel')">Cancel</button>
+        <button class="qa-btn" onclick="quickSend('Continue')">Continue</button>
+        <button class="qa-btn" onclick="quickSend('Skip')">Skip</button>
+    </div>
+
+    <!-- Quick prompts — commander mode -->
+    <div class="ai-quick-actions">
+        <button class="ai-qa-btn" onclick="aiClearHistory()" style="background:#4f46e5;color:#fff;">🗑 Clear History</button>
+        <button class="ai-qa-btn" onclick="aiQuickSend('quick', 'Say hello')">👋 Hello</button>
+        <button class="ai-qa-btn" onclick="aiQuickSend('quick', 'What can you do?')">❓ Capabilities</button>
+        <button class="ai-qa-btn" onclick="aiQuickSend('coding', 'Review the last code change')">💻 Code review</button>
+        <button class="ai-qa-btn" onclick="aiQuickSend('planning', 'Summarize the current project status')">📋 Status</button>
+        <button class="ai-qa-btn" onclick="aiQuickSend('quick', 'List all running services')">🔧 Services</button>
+    </div>
+
+    <!-- Quick actions — runtime mode -->
+    <div class="rt-quick-actions">
+        <button class="rt-qa-btn" onclick="loadRuntime()">🔄 Refresh</button>
+        <button class="rt-qa-btn" onclick="openTelemetry()">📡 Raw Telemetry</button>
+        <button class="rt-qa-btn" onclick="openMemory()">💾 Full Memory</button>
+        <button class="rt-qa-btn" onclick="loadSecurity()">🛡 Security</button>
+        <button class="rt-qa-btn" onclick="generateCisoReport()">⚡ CISO Report</button>
+        <a href="/report" target="_blank"><button class="rt-qa-btn" style="background:#4f46e5;">📄 View Report</button></a>
+    </div>
+    <!-- Director mode row -->
+    <div class="dir-mode-row">
+        <span class="dir-mode-label">Mode:</span>
+        <button class="dir-mode-btn active" id="dirMode-auto"  onclick="setDirMode('auto')">🧠 Auto</button>
+        <button class="dir-mode-btn"        id="dirMode-code"  onclick="setDirMode('code')">💻 Code</button>
+        <button class="dir-mode-btn"        id="dirMode-plan"  onclick="setDirMode('plan')">📋 Plan</button>
+        <button class="dir-mode-btn"        id="dirMode-ops"   onclick="setDirMode('ops')">🔧 Ops</button>
+    </div>
+
+    <!-- Director quick prompts -->
+    <div class="dir-quick-actions">
+        <button class="dir-qa-btn" onclick="sendDirector('What is the current OnPoint deployment status?','ops')">📊 Status</button>
+        <button class="dir-qa-btn" onclick="sendDirector('Review the latest code changes and flag any issues','code')">💻 Code Review</button>
+        <button class="dir-qa-btn" onclick="sendDirector('What should I work on next?','plan')">🎯 Next Steps</button>
+        <button class="dir-qa-btn" onclick="sendDirector('Run a quick security check on the OnPoint repos','ops')">🛡 Security</button>
+        <button class="dir-qa-btn" onclick="sendDirector('Summarize what was built today','auto')">📝 Daily Summary</button>
+    </div>
+
+    <footer>
+        <label class="file-upload-btn" title="Attach file" onclick="if(window.currentMode==='director'){document.getElementById('dirFileInput').click();return false;}">
+            <input type="file" id="fileInput" multiple>
+            <input type="file" id="dirFileInput" style="display:none" onchange="dirAttachFile(this)">
+            <span id="fileIcon">📎</span>
+        </label>
+        <textarea id="txt" placeholder="Send a message…"></textarea>
+        <button id="sendBtn" onclick="sendMsg()" title="Send">▶</button>
+        <button id="rtRefreshFooter" onclick="loadRuntime()">⟳ Refresh Runtime</button>
+    </footer>
+
+    <!-- Stats Modal -->
+    <div id="statsModal">
+        <div class="stats-card">
+            <h2>⬡ Bridge Status</h2>
+            <div class="stat-row"><span class="stat-label">Bridge</span><span class="stat-value" id="s-bridge">—</span></div>
+            <div class="stat-row"><span class="stat-label">Windows Found</span><span class="stat-value" id="s-targets">—</span></div>
+            <div class="stat-row"><span class="stat-label">Active Window</span><span class="stat-value" id="s-active">—</span></div>
+            <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value" id="s-uptime">—</span></div>
+            <div class="stat-row"><span class="stat-label">Memory Used</span><span class="stat-value" id="s-mem">—</span></div>
+            <div class="stat-row"><span class="stat-label">CPU Load</span><span class="stat-value" id="s-cpu">—</span></div>
+            <div class="stat-row"><span class="stat-label">Heap Used</span><span class="stat-value" id="s-heap">—</span></div>
+            <div class="stats-action-row">
+                <button class="stats-action-btn warn" onclick="confirmRestartBridge()" id="restartBridgeBtn">⟳ Restart Bridge</button>
+                <button class="stats-action-btn danger" onclick="openRebootModal()" id="rebootServerBtn">⎋ Reboot Server</button>
+            </div>
+            <button class="stats-close" onclick="toggleStats()">Close</button>
+        </div>
+    </div>
+
+    <!-- Reboot Confirm Modal -->
+    <div id="rebootModal">
+        <div class="reboot-card">
+            <div class="reboot-icon" id="rebootIcon">⚠️</div>
+            <div class="reboot-title" id="rebootTitle">Reboot Server?</div>
+            <div class="reboot-msg" id="rebootMsg">All connections will drop. The server will restart and the bridge will come back online in ~30–60 seconds.</div>
+            <div class="reboot-btns" id="rebootBtns">
+                <button class="reboot-cancel" onclick="closeRebootModal()">Cancel</button>
+                <button class="reboot-confirm" onclick="confirmReboot()" id="rebootConfirmBtn">Yes, Reboot</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=5"></script>
+    <script src="director.js?v=2"></script>
+    <script>
+        // Poll for dialog buttons every 1.5s (browser mode only)
+        setInterval(() => { if (currentMode !== 'commander' && currentMode !== 'runtime') scanDialogActions(); }, 1500);
+        scanDialogActions();
+
+        // ── Active Antigravity Context (what's open inside the window) ────
+        async function refreshContext() {
+            try {
+                const ctx = await fetch('/ag-context').then(r => r.json());
+                const el = document.getElementById('activeContext');
+                if (!el) return;
+                const text = ctx?.title || ctx?.context;
+                if (text && text !== 'timeout' && text !== 'ws error' && text !== 'No active window') {
+                    // Strip " - Antigravity" suffix if present
+                    const clean = text.replace(/ - Antigravity$/, '').trim();
+                    el.textContent = clean;
+                    el.className = 'has-context';
+                    el.title = clean; // full text on long-press
+                } else {
+                    el.textContent = '—';
+                    el.className = '';
+                }
+            } catch (_) {}
+        }
+        setInterval(refreshContext, 4000);
+        refreshContext();
+
+        // ── Runtime Panel Logic ───────────────────────────────────────────
+        async function loadRuntime() {
+            try {
+                const [tel, mem, htop] = await Promise.all([
+                    fetch('/ag-telemetry').then(r => r.json()).catch(() => null),
+                    fetch('/ag-memory?limit=8').then(r => r.json()).catch(() => null),
+                    fetch('/htop').then(r => r.json()).catch(() => null),
+                ]);
+
+                // After we know the agent PIDs, fetch their real CPU stats directly
+                const agentPids = (tel?.telemetry?.agents || []).map(a => a.pid).filter(Boolean);
+                let agentProcs = null;
+                if (agentPids.length) {
+                    agentProcs = await fetch(`/agent-proc-stats?pids=${agentPids.join(',')}`)
+                        .then(r => r.json()).catch(() => null);
+                }
+
+                renderAgents(tel, htop, agentProcs);
+                renderQueue(tel);
+                renderModels(tel);
+                renderSystem(tel, mem);
+                renderMemory(mem);
+            } catch (e) {
+                console.error('loadRuntime error', e);
+            }
+        }
+
+        function renderAgents(tel, htop, agentProcs) {
+            const snap = tel?.telemetry;
+            const agents = snap?.agents || [];
+            const badge = document.getElementById('agentBadge');
+            const rows  = document.getElementById('agentRows');
+
+            badge.textContent = agents.length ? `${agents.length} active` : '0';
+            badge.className   = 'rt-badge' + (agents.length ? '' : ' warn');
+
+            if (!agents.length) {
+                rows.innerHTML = '<div class="rt-empty">No agents running — start with: node /ai-data/runtime/scaler/index.js</div>';
+                return;
+            }
+
+            // Use direct per-PID stats first; fall back to htop top-20 list
+            const directProcs = agentProcs?.procs || [];
+            const htopProcs   = htop?.processes  || [];
+
+            rows.innerHTML = agents.map(a => {
+                // Try direct lookup first (accurate even if agent is idle/not in top 20)
+                const direct = directProcs.find(x => String(x.pid) === String(a.pid));
+                const htopP  = htopProcs.find(x => String(x.pid) === String(a.pid));
+                const proc   = direct || htopP;
+
+                const cpu = proc ? parseFloat(proc.cpu) : null;
+                const pidAlive = !!proc;  // false = PID not found in ps output = dead
+
+                let dotClass = pidAlive ? 'green' : 'dim';
+                if (cpu !== null && cpu > 80) dotClass = 'red';
+                else if (cpu !== null && cpu > 20) dotClass = 'yellow';
+
+                const cpuStr = cpu !== null ? `${cpu.toFixed(1)}% CPU` : (pidAlive ? '0.0% CPU' : '⚠ dead');
+
+                return `
+                <div class="rt-row">
+                    <div class="rt-dot ${dotClass}"></div>
+                    <span class="rt-name">${a.name}</span>
+                    <span class="rt-meta">${a.model || ''}</span>
+                    <span class="rt-value" style="width:80px;text-align:right;">${cpuStr}</span>
+                    <span class="rt-value" style="width:60px;text-align:right;color:#666;">PID ${a.pid}</span>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function renderQueue(tel) {
+            const snap = tel?.telemetry || {};
+            const tasks = tel?.tasks || {};
+            document.getElementById('q-pending').textContent = snap.pendingTasks ?? '—';
+            document.getElementById('q-active').textContent  = snap.activeTasks  ?? '—';
+            document.getElementById('q-done').textContent    = (tasks.completed || []).length || snap.completedTasks || '—';
+            document.getElementById('q-failed').textContent  = (tasks.failed   || []).length || '—';
+
+            const p = snap.pendingTasks || 0;
+            const badge = document.getElementById('queueBadge');
+            badge.textContent = `${p} pending`;
+            badge.className   = 'rt-badge' + (p > 0 ? ' warn' : '');
+        }
+
+        function renderModels(tel) {
+            const models = tel?.telemetry?.models || [];
+            const badge  = document.getElementById('modelBadge');
+            const rows   = document.getElementById('modelRows');
+
+            badge.textContent = `${models.length} loaded`;
+
+            if (!models.length) {
+                rows.innerHTML = '<div class="rt-empty">No models listed (ollama may be offline)</div>';
+                return;
+            }
+
+            const modelMeta = {
+                'deepseek-coder': { role: 'Coding / Test', dot: 'green' },
+                'qwen2.5':        { role: 'Planning / Security', dot: 'green' },
+                'phi3':           { role: 'Quick tasks', dot: 'green' },
+            };
+
+            rows.innerHTML = models.map(m => {
+                const key  = Object.keys(modelMeta).find(k => m.includes(k)) || '';
+                const meta = modelMeta[key] || { role: 'General', dot: 'dim' };
+                return `
+                    <div class="rt-row">
+                        <div class="rt-dot ${meta.dot}"></div>
+                        <span class="rt-name">${m}</span>
+                        <span class="rt-meta">${meta.role}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderSystem(tel, mem) {
+            const snap = tel?.telemetry || {};
+            const totalMem = snap.memFreeMB != null ? snap.memFreeMB : null;
+            const cpus = snap.cpus || '—';
+            const uptime = snap.uptimeSeconds != null
+                ? `${Math.floor(snap.uptimeSeconds / 3600)}h ${Math.floor((snap.uptimeSeconds % 3600) / 60)}m`
+                : '—';
+
+            document.getElementById('sys-cpu').textContent     = cpus !== '—' ? `${cpus} cores` : '—';
+            document.getElementById('sys-cpu-sub').textContent = snap.host || '';
+            document.getElementById('sys-ram').textContent     = totalMem != null ? `${totalMem} MB` : '—';
+            document.getElementById('sys-ram-sub').textContent = 'free';
+            document.getElementById('sys-uptime').textContent  = uptime;
+            document.getElementById('sys-mem-rec').textContent = tel?.memoryTotal ?? (mem?.total ?? '—');
+        }
+
+        function renderMemory(mem) {
+            const records = mem?.records || [];
+            const badge   = document.getElementById('memBadge');
+            const rows    = document.getElementById('memRows');
+
+            badge.textContent = `${mem?.total ?? records.length} total`;
+
+            if (!records.length) {
+                rows.innerHTML = '<div class="rt-empty">No memory records yet. Tasks will be stored here after execution.</div>';
+                return;
+            }
+
+            rows.innerHTML = records.map(r => `
+                <div class="mem-entry">
+                    <div class="mem-task">${r.task || r.id || '—'}</div>
+                    <div class="mem-agents">${(r.agentsUsed || []).join(' · ') || r.category}</div>
+                    <div class="mem-ts">${r.timestamp ? new Date(r.timestamp).toLocaleString() : ''}</div>
+                </div>
+            `).join('');
+        }
+
+        function openTelemetry() { window.open('/ag-telemetry', '_blank'); }
+        function openMemory()    { window.open('/ag-memory',    '_blank'); }
+        function viewVulns()     { window.open('/ag-vulnerabilities', '_blank'); }
+
+        async function loadSecurity() {
+            const content = document.getElementById('securityContent');
+            const badge   = document.getElementById('securityBadge');
+            try {
+                const sec = await fetch('/ag-security').then(r => r.json());
+                if (sec.error) {
+                    badge.textContent = 'No scan';
+                    badge.className = 'rt-badge warn';
+                    content.innerHTML = `<div class="rt-empty">${sec.error}</div>`;
+                    return;
+                }
+                const score   = sec.score ?? '?';
+                const posture = sec.posture || 'UNKNOWN';
+                const postureColor = { GOOD: 'green', FAIR: 'yellow', POOR: 'yellow', CRITICAL: 'red' }[posture] || 'dim';
+                badge.textContent = `${score}/100 ${posture}`;
+                badge.className   = 'rt-badge' + (posture === 'GOOD' ? '' : posture === 'FAIR' ? ' warn' : ' err');
+
+                const findings = sec.topFindings || [];
+                const findStr = findings.length
+                    ? findings.slice(0,5).map(f => `<div class="rt-row"><div class="rt-dot ${f.severity === 'CRITICAL' ? 'red' : 'yellow'}"></div><span class="rt-name" style="font-size:12px;">${f.name}</span><span class="rt-meta">${f.file || ''}</span></div>`).join('')
+                    : '<div class="rt-row"><div class="rt-dot green"></div><span class="rt-name">No critical findings</span></div>';
+
+                content.innerHTML = `
+                    <div class="sys-grid" style="border-bottom:1px solid #1c1c1c;">
+                        <div class="sys-cell"><div class="sys-label">Score</div><div class="sys-val" style="color:${postureColor==='green'?'#22c55e':postureColor==='yellow'?'#ffb400':'#ff4444'}">${score}/100</div><div class="sys-sub">${posture}</div></div>
+                        <div class="sys-cell"><div class="sys-label">Secrets</div><div class="sys-val" style="color:${sec.secrets?.count>0?'#ff4444':'#22c55e'}">${sec.secrets?.count ?? 0}</div><div class="sys-sub">${sec.secrets?.count>0?'EXPOSED':'Clean'}</div></div>
+                        <div class="sys-cell"><div class="sys-label">SAST</div><div class="sys-val">${sec.sast?.count ?? 0}</div><div class="sys-sub">findings</div></div>
+                        <div class="sys-cell"><div class="sys-label">Dep Vulns</div><div class="sys-val" style="color:${sec.dependencies?.critical>0?'#ff4444':'#22c55e'}">${sec.dependencies?.total ?? 0}</div><div class="sys-sub">${sec.dependencies?.critical??0} critical</div></div>
+                    </div>
+                    <div class="rt-rows">${findStr}</div>
+                    <div class="rt-row"><div class="rt-dot dim"></div><span class="rt-meta">Repo: ${sec.repo || '—'}  Scanned: ${sec.timestamp ? new Date(sec.timestamp).toLocaleString() : '—'}</span></div>
+                `;
+            } catch (e) {
+                badge.textContent = 'Error';
+                badge.className = 'rt-badge err';
+                content.innerHTML = `<div class="rt-empty">Security endpoint error: ${e.message}</div>`;
+            }
+        }
+
+        async function generateCisoReport() {
+            const btn = document.getElementById('cisoRunBtn');
+            btn.textContent = '⏳ Running…';
+            btn.disabled = true;
+            try {
+                const res = await fetch('/ag-ciso-report/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ repo: '/home/tony/OnPoint-Flutter', name: 'OnPoint-Flutter' }),
+                });
+                const d = await res.json();
+                btn.textContent = '✓ Started';
+                setTimeout(() => { btn.textContent = '⚡ Generate CISO Report'; btn.disabled = false; }, 3000);
+            } catch (e) {
+                btn.textContent = '✗ Failed';
+                btn.disabled = false;
+            }
+        }
+
+        function downloadReport() {
+            window.open('/ag-security-report/latest.md', '_blank');
+        }
+
+        async function loadArchitecture() {
+            const content = document.getElementById('archContent');
+            const badge   = document.getElementById('archBadge');
+            try {
+                const arch = await fetch('/ag-architecture').then(r => r.json());
+                if (arch.error) {
+                    badge.textContent = 'No data';
+                    badge.className = 'rt-badge warn';
+                    content.innerHTML = `<div class="rt-empty">${arch.error}</div>`;
+                    return;
+                }
+                const avgScore = arch.avgRiskScore ?? '?';
+                const risk     = arch.overallRisk || 'UNKNOWN';
+                badge.textContent = `${avgScore}/100 ${risk}`;
+                badge.className   = 'rt-badge' + (risk === 'Low' ? '' : risk === 'Moderate' ? ' warn' : ' err');
+
+                const repos = arch.repos || [];
+                const repoRows = repos.map(r => {
+                    const dotColor = r.riskLevel === 'Low' ? 'green' : r.riskLevel === 'Moderate' ? 'yellow' : 'red';
+                    return `<div class="rt-row">
+                        <div class="rt-dot ${dotColor}"></div>
+                        <span class="rt-name">${r.repo}</span>
+                        <span class="rt-meta">${r.authMechanisms?.length ?? 0} auth · ${r.endpoints?.count ?? 0} endpoints</span>
+                        <span class="rt-value">${r.riskScore}/100</span>
+                    </div>`;
+                }).join('');
+
+                const ts = arch.timestamp ? new Date(arch.timestamp).toLocaleString() : '—';
+                content.innerHTML = `
+                    <div class="sys-grid" style="border-bottom:1px solid #1c1c1c;">
+                        <div class="sys-cell"><div class="sys-label">Avg Risk</div><div class="sys-val">${avgScore}/100</div><div class="sys-sub">${risk}</div></div>
+                        <div class="sys-cell"><div class="sys-label">Repos</div><div class="sys-val">${repos.length}</div><div class="sys-sub">monitored</div></div>
+                        <div class="sys-cell"><div class="sys-label">Endpoints</div><div class="sys-val">${arch.summary?.totalEndpoints ?? '—'}</div><div class="sys-sub">total</div></div>
+                        <div class="sys-cell"><div class="sys-label">Critical</div><div class="sys-val" style="color:${(arch.summary?.criticalRepos?.length ?? 0) > 0 ? '#ff4444' : '#22c55e'}">${arch.summary?.criticalRepos?.length ?? 0}</div><div class="sys-sub">repos</div></div>
+                    </div>
+                    <div class="rt-rows">${repoRows || '<div class="rt-empty">No repo data</div>'}</div>
+                    <div class="rt-row"><div class="rt-dot dim"></div><span class="rt-meta">Analyzed: ${ts}</span></div>
+                `;
+            } catch (e) {
+                badge.textContent = 'Error';
+                badge.className = 'rt-badge err';
+                content.innerHTML = `<div class="rt-empty">Architecture endpoint error: ${e.message}</div>`;
+            }
+        }
+
+        async function runArchAnalysis() {
+            const btn = document.getElementById('archRunBtn');
+            btn.textContent = '⏳ Running…';
+            btn.disabled = true;
+            try {
+                const res = await fetch('/ag-architecture/run', { method: 'POST' });
+                const d   = await res.json();
+                btn.textContent = '✓ Started';
+                setTimeout(() => { btn.textContent = '🏗 Run Analysis'; btn.disabled = false; loadArchitecture(); }, 5000);
+            } catch (e) {
+                btn.textContent = '✗ Failed';
+                btn.disabled = false;
+            }
+        }
+
+        // Auto-refresh runtime panel every 8 s when in runtime mode
+        setInterval(() => { if (typeof currentMode !== 'undefined' && currentMode === 'runtime') loadRuntime(); }, 8000);
+        // Auto-refresh security every 30s
+        setInterval(() => { if (typeof currentMode !== 'undefined' && currentMode === 'runtime') loadSecurity(); }, 30000);
+        // Auto-refresh architecture every 60s
+        setInterval(() => { if (typeof currentMode !== 'undefined' && currentMode === 'runtime') loadArchitecture(); }, 60000);
+
+        // Hook into setMode to load runtime data on switch
+        const _origSetMode = typeof setMode === 'function' ? setMode : null;
+        window._runtimeHooked = false;
+        window.addEventListener('load', () => {
+            const origSet = window.setMode;
+            window.setMode = function(mode) {
+                origSet(mode);
+                if (mode === 'runtime') { loadRuntime(); loadSecurity(); loadArchitecture(); }
+                if (mode === 'director') {
+                    const dc = document.getElementById('directorChat');
+                    if (dc) dc.scrollTop = dc.scrollHeight;
+                }
+            };
+        });
+
+        // ── Reboot / Restart Bridge ───────────────────────────────────────
+        function openRebootModal() {
+            toggleStats();
+            const m = document.getElementById('rebootModal');
+            document.getElementById('rebootIcon').textContent = '⚠️';
+            document.getElementById('rebootTitle').textContent = 'Reboot Server?';
+            document.getElementById('rebootMsg').textContent = 'All connections will drop. The server will restart and the bridge will come back online in ~30–60 seconds.';
+            document.getElementById('rebootBtns').style.display = 'flex';
+            document.getElementById('rebootConfirmBtn').disabled = false;
+            document.getElementById('rebootConfirmBtn').textContent = 'Yes, Reboot';
+            m.classList.add('open');
+        }
+        function closeRebootModal() { document.getElementById('rebootModal').classList.remove('open'); }
+
+        async function confirmReboot() {
+            const btn = document.getElementById('rebootConfirmBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="reboot-spinner"></span>Rebooting…';
+            document.getElementById('rebootBtns').querySelector('.reboot-cancel').disabled = true;
+            document.getElementById('rebootMsg').textContent = 'Reboot command sent. Reconnect in ~30–60 seconds when the bridge comes back online.';
+            try {
+                await fetch('/system-reboot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirmed: true }),
+                });
+            } catch (_) {} // Connection will drop — ignore network errors
+            document.getElementById('rebootIcon').textContent = '🔄';
+            document.getElementById('rebootTitle').textContent = 'Server Rebooting…';
+            document.getElementById('rebootBtns').style.display = 'none';
+        }
+
+        async function confirmRestartBridge() {
+            const btn = document.getElementById('restartBridgeBtn');
+            const orig = btn.textContent;
+            btn.textContent = '⏳ Restarting…';
+            btn.disabled = true;
+            try {
+                await fetch('/restart-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            } catch (_) {}
+            btn.textContent = '✓ Restarting…';
+            setTimeout(() => {
+                btn.textContent = orig;
+                btn.disabled = false;
+                toggleStats();
+            }, 3000);
+        }
+
+        // ── Htop Live Monitor ──
+        let htopTimer = null;
+        let lastCpus = null;
+        function toggleHtop() {
+            const mod = document.getElementById('htopModal');
+            if (mod.classList.contains('open')) {
+                mod.classList.remove('open');
+                clearInterval(htopTimer);
+                lastCpus = null;
+            } else {
+                mod.classList.add('open');
+                fetchHtop();
+                htopTimer = setInterval(fetchHtop, 2000);
+            }
+        }
+        async function fetchHtop() {
+            try {
+                const res = await fetch('/htop');
+                const data = await res.json();
+                if (data.system) {
+                    let cpuHtml = '<div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:4px 16px;width:100%;max-width:500px;">';
+                    const curCpus = data.system.cpus;
+                    if (curCpus && lastCpus && lastCpus.length === curCpus.length) {
+                        curCpus.forEach((cpu, i) => {
+                            const prev = lastCpus[i].times;
+                            const curr = cpu.times;
+                            const prevTotal = Object.values(prev).reduce((a,b)=>a+b, 0);
+                            const currTotal = Object.values(curr).reduce((a,b)=>a+b, 0);
+                            const totalDiff = currTotal - prevTotal;
+                            const idleDiff = curr.idle - prev.idle;
+                            const pct = totalDiff === 0 ? 0 : 100 - ((idleDiff / totalDiff) * 100);
+                            const u = Math.min(100, Math.max(0, pct));
+                            
+                            const bars = Math.round((u / 100) * 20);
+                            const barStr = '|'.repeat(bars) + '&nbsp;'.repeat(20 - bars);
+                            const color = u > 80 ? '#ef4444' : (u > 40 ? '#facc15' : '#4ade80');
+                            
+                            cpuHtml += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:'JetBrains Mono',monospace;">
+                                <span style="width:14px;color:#888;">${i}</span>
+                                <span style="margin:0;color:${color};background:#222;padding:2px 4px;border-radius:2px;letter-spacing:1px;">[${barStr}]</span>
+                                <span style="width:40px;text-align:right;color:#ccc;">${u.toFixed(1)}%</span>
+                            </div>`;
+                        });
+                    } else if (curCpus) {
+                        cpuHtml += '<div style="color:#666">Calculating CPU usage...</div>';
+                    }
+                    cpuHtml += '</div>';
+                    lastCpus = curCpus;
+
+                    document.getElementById('htopSysInfo').innerHTML = `
+                        <div style="flex:1;">${cpuHtml}</div>
+                        <div style="min-width:180px;text-align:right;font-size:12px;display:flex;flex-direction:column;justify-content:center;gap:8px;">
+                            <div style="color:#aaa;">Load: <span style="color:#fff">${data.system.load.join(', ')}</span></div>
+                            <div style="color:#aaa;">Mem: <span style="color:#fff">${data.system.memUsed} / ${data.system.memTotal} MB</span></div>
+                        </div>
+                    `;
+                }
+                if (data.processes) {
+                    const tbody = document.getElementById('htopBody');
+                    tbody.innerHTML = data.processes.map(p => `
+                        <tr>
+                            <td>${p.pid}</td>
+                            <td style="color:#a78bfa">${p.user}</td>
+                            <td class="htop-cpu">${p.cpu}</td>
+                            <td class="htop-mem">${p.mem}</td>
+                            <td style="color:#94a3b8">${p.vsz}</td>
+                            <td style="color:#94a3b8">${p.rss}</td>
+                            <td style="color:#94a3b8">${p.stat}</td>
+                            <td style="color:#cbd5e1">${p.time}</td>
+                            <td class="htop-cmd">${p.command}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch(e) {
+                document.getElementById('htopBody').innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#ef4444;">Connection error: ${e.message}</td></tr>`;
+            }
+        }
+    </script>
+</body>
+
+</html>
