@@ -82,9 +82,25 @@ function pickManagerTarget() {
 let cdpWs = null;
 let cdpConnectedUrl = null;
 let cdpPendingEval = false;
+let skipPollWhileSending = false;  // pause stream during send (DOM in flux)
+let lastWinningSelector = null;    // cache the selector that matched last tick
 
-const STREAM_SCRIPT = `(() => {
+// Build the stream script dynamically so we can try a cached selector first
+function buildStreamScript(cachedSelector) {
+    const cachedTry = cachedSelector ? `
+        // Try cached winning selector first (avoids iterating all selectors every tick)
+        try {
+            const cached = document.querySelector(${JSON.stringify(cachedSelector)});
+            if (cached && cached.innerText && cached.innerText.trim().length > 80) {
+                cached.scrollTop = cached.scrollHeight;
+                return { text: cached.innerText, title: document.title || 'Antigravity', source: 'cached:${cachedSelector}' };
+            }
+        } catch(_){}
+    ` : '';
+
+    return `(() => {
     try {
+        ${cachedTry}
         // Priority 1: Antigravity AI chat/agent side panel — live conversation
         const chatSelectors = [
             '.antigravity-agent-side-panel',
@@ -118,6 +134,7 @@ const STREAM_SCRIPT = `(() => {
         return { text: document.body.innerText || '', title: document.title || 'Antigravity', source: 'body' };
     } catch(e) { return { text: '', title: 'Antigravity', source: 'error:'+e.message }; }
 })()`;
+}
 
 function connectCDP(wsUrl) {
     if (cdpWs) { try { cdpWs.terminate(); } catch (_) {} cdpWs = null; }
@@ -141,6 +158,12 @@ function connectCDP(wsUrl) {
             const newText = val.text || '';
             const title = val.title || 'OnPoint';
 
+            // Cache the winning selector so next tick tries it first
+            const src = val.source || '';
+            if (src.startsWith('chat:')) lastWinningSelector = src.slice(5);
+            else if (src.startsWith('cached:')) { /* already cached, keep it */ }
+            else lastWinningSelector = null; // editor/body fallback — don't cache
+
             let delta = '';
             if (newText.startsWith(lastFullText)) {
                 delta = newText.slice(lastFullText.length).trimStart();
@@ -162,6 +185,11 @@ function connectCDP(wsUrl) {
 }
 
 async function stream() {
+    // Skip polling when no clients are connected (saves CPU when bridge UI is closed)
+    if (wss.clients.size === 0) return;
+    // Skip polling while a send is in-flight (DOM is in flux, innerText is unreliable)
+    if (skipPollWhileSending) return;
+
     await refreshTargets();
     const target = pickTarget();
     if (!target) return;
@@ -176,7 +204,8 @@ async function stream() {
 
     if (cdpPendingEval) return;
     cdpPendingEval = true;
-    cdpWs.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: STREAM_SCRIPT, returnByValue: true } }));
+    const script = buildStreamScript(lastWinningSelector);
+    cdpWs.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: script, returnByValue: true } }));
     setTimeout(() => { cdpPendingEval = false; }, 3000); // safety reset
 }
 
@@ -247,29 +276,33 @@ function xdotoolSend(text) {
             spawnSync(XDOTOOL_BIN, ['windowfocus', '--sync', winId], {
                 encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
             });
-            spawnSync('sleep', ['0.2'], { env: DISPLAY_ENV });
+            spawnSync('sleep', ['0.15'], { env: DISPLAY_ENV });
 
-            // Type text into the window
-            const typeResult = spawnSync(XDOTOOL_BIN, [
-                'type', '--clearmodifiers', '--delay', '10', '--window', winId, text
-            ], { encoding: 'utf8', env: DISPLAY_ENV, timeout: 15000 });
-
-            if (typeResult.error) throw typeResult.error;
+            // Write to clipboard then paste — instant regardless of message length.
+            // This replaces per-character xdotool type (N X11 events → 1 Ctrl+V event).
+            spawnSync(XCLIP_BIN, ['-selection', 'clipboard'], {
+                input: text, encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+            });
+            spawnSync(XDOTOOL_BIN, ['key', '--clearmodifiers', '--window', winId, 'ctrl+v'], {
+                encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+            });
 
             // Press Enter to submit
-            spawnSync('sleep', ['0.1'], { env: DISPLAY_ENV });
+            spawnSync('sleep', ['0.05'], { env: DISPLAY_ENV });
             spawnSync(XDOTOOL_BIN, ['key', '--window', winId, 'Return'], {
                 encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
             });
 
-            resolve({ success: true, method: 'xdotool-type', winId });
+            resolve({ success: true, method: 'xclip-paste', winId });
         } catch (e) {
             resolve({ success: false, error: e.message, method: 'xdotool-type' });
         }
     });
 }
 
-setInterval(stream, 1000); // 1-second aggressive heartbeat
+// Adaptive polling: 3s when clients are present, essentially free when none are connected.
+// The stream() function itself guards against polling with 0 clients.
+setInterval(stream, 3000);
 
 // ── Director-specific send ────────────────────────────────────────────────────
 // Uses CDP to get the chat input bounding box, converts to absolute screen
@@ -355,27 +388,29 @@ async function directorSend(text, chatWsUrl) {
         spawnSync(XDOTOOL_BIN, ['windowfocus', '--sync', winId], {
             encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
         });
-        spawnSync('sleep', ['0.3'], { env: DISPLAY_ENV });
+        spawnSync('sleep', ['0.2'], { env: DISPLAY_ENV });
 
         // Press Ctrl+Alt+I to focus the Antigravity chat input panel
         spawnSync(XDOTOOL_BIN, ['key', '--window', winId, 'ctrl+alt+i'], {
             encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
         });
-        spawnSync('sleep', ['0.5'], { env: DISPLAY_ENV });
+        spawnSync('sleep', ['0.4'], { env: DISPLAY_ENV });
 
-        // Type the message
-        const typeResult = spawnSync(XDOTOOL_BIN, [
-            'type', '--clearmodifiers', '--delay', '10', '--window', winId, text
-        ], { encoding: 'utf8', env: DISPLAY_ENV, timeout: 15000 });
+        // Write to clipboard then paste — instant regardless of message length.
+        // This replaces per-character xdotool type (N X11 events → 1 Ctrl+V event).
+        spawnSync(XCLIP_BIN, ['-selection', 'clipboard'], {
+            input: text, encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+        });
+        spawnSync(XDOTOOL_BIN, ['key', '--clearmodifiers', '--window', winId, 'ctrl+v'], {
+            encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
+        });
 
-        if (typeResult.error) throw typeResult.error;
-
-        spawnSync('sleep', ['0.1'], { env: DISPLAY_ENV });
+        spawnSync('sleep', ['0.05'], { env: DISPLAY_ENV });
         spawnSync(XDOTOOL_BIN, ['key', '--window', winId, 'Return'], {
             encoding: 'utf8', env: DISPLAY_ENV, timeout: 3000,
         });
 
-        return { success: true, method: 'director-shortcut-type', winId, title: winTitle };
+        return { success: true, method: 'director-xclip-paste', winId, title: winTitle };
     } catch (e) {
         return { success: false, error: e.message };
     }
@@ -796,6 +831,11 @@ app.post('/send', async (req, res) => {
     const msg = String(req.body.message || '').trim();
     if (!msg) return res.json({ success: false, error: 'Empty message' });
 
+    // Pause the CDP stream loop while send is in-flight (DOM is changing, innerText is unreliable)
+    skipPollWhileSending = true;
+    const resumePoll = () => { skipPollWhileSending = false; };
+    const pollResumeTimer = setTimeout(resumePoll, 3000); // safety: always re-enable after 3s
+
     // ── Try CDP first: fast and reliable for the active CDP window ────────────
     if (activeTargetUrl) {
         try {
@@ -829,15 +869,17 @@ app.post('/send', async (req, res) => {
                     }, 150);
                 });
             });
+            clearTimeout(pollResumeTimer); resumePoll();
             return res.json(result);
         } catch (cdpErr) {
             // CDP failed — fall through to xdotool
         }
     }
 
-    // ── Fallback: xdotool ─────────────────────────────────────────────────────
+    // ── Fallback: xclip+xdotool ───────────────────────────────────────────────
     const xResult = await xdotoolSend(msg);
-    if (xResult.success) return res.json({ success: true, method: 'xdotool' });
+    clearTimeout(pollResumeTimer); resumePoll();
+    if (xResult.success) return res.json({ success: true, method: 'xclip' });
 
     res.json({ success: false, error: `CDP unavailable and xdotool failed: ${xResult.error}` });
 });
