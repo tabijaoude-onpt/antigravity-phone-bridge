@@ -120,6 +120,8 @@ content.addEventListener('scroll', () => {
 // ── Agent Manager: always-pinned top window ────────────────────────────────────
 let managerWsUrl = null;
 
+let hasAutoLockedManager = false;
+
 async function refreshManagerPill() {
     try {
         const mgr = await fetch('/manager').then(r => r.json());
@@ -134,8 +136,9 @@ async function refreshManagerPill() {
 
         managerWsUrl = mgr.wsUrl;
         // Auto-lock on first load or if not yet locked to manager
-        if (!mgr.isActive) {
+        if (!hasAutoLockedManager && !mgr.isActive) {
             await fetch('/lock-manager', { method: 'POST' });
+            hasAutoLockedManager = true;
         }
 
         if (pill) {
@@ -143,12 +146,13 @@ async function refreshManagerPill() {
             pill.className = 'manager-pill' + (mgr.isActive ? ' active' : '');
         }
         if (managerStatus) {
-            managerStatus.textContent = mgr.isActive ? '● LIVE' : 'tap to activate';
+            managerStatus.textContent = mgr.isActive ? '● LIVE' : 'switch to agent';
         }
     } catch (_) {}
 }
 
 async function lockToManager() {
+    hasAutoLockedManager = true;
     try {
         const result = await fetch('/lock-manager', { method: 'POST' }).then(r => r.json());
         if (result.success) {
@@ -174,44 +178,50 @@ async function refreshWindowList() {
         ]);
         const windows = winRes.windows || [];
         const workspaces = wsRes.workspaces || [];
-        const pillRow = document.getElementById('winPillRow');
         const winList = document.getElementById('winList');
+        if (!winList) return;
 
-        // Update hidden select for changeWin compatibility
-        winList.innerHTML = windows.filter(w => w.cdpReady).map(w =>
-            `<option value="${escHtml(w.wsUrl)}" ${w.active ? 'selected' : ''}>${escHtml(w.rawTitle || w.title)}</option>`
-        ).join('');
+        let allOptions = '<option value="" disabled>Select a window...</option>';
 
-        // Other open windows (excluding the manager which has its own pinned pill)
+        // Other open windows
         const otherWindows = windows.filter(w => w.wsUrl !== managerWsUrl);
-        let html = otherWindows.map(w => {
-            const label = w.title.length > 24 ? w.title.slice(0, 22) + '\u2026' : w.title;
-            if (w.cdpReady) {
-                const safe = (w.wsUrl || '').replace(/"/g, '&quot;');
-                return `<button class="win-pill${w.active ? ' active' : ''}" title="${escHtml(w.rawTitle || w.title)}" onclick="changeWin('${safe}')">${escHtml(label)}</button>`;
-            } else {
-                const safeWid = (w.wid || '').replace(/"/g, '&quot;');
-                const safeDsp = (w.display || ':10.0').replace(/"/g, '&quot;');
-                return `<button class="win-pill desktop-only" title="${escHtml(w.rawTitle || w.title)}" onclick="focusDesktopWin('${safeWid}','${safeDsp}')">${escHtml(label)}</button>`;
-            }
-        }).join('');
+        if (otherWindows.length > 0) {
+            allOptions += '<optgroup label="Open Windows">';
+            otherWindows.forEach(w => {
+                const label = w.title.length > 40 ? w.title.slice(0, 38) + '\u2026' : w.title;
+                if (w.cdpReady) {
+                    const safe = (w.wsUrl || '').replace(/"/g, '&quot;');
+                    allOptions += `<option value="${safe}" ${w.active ? 'selected' : ''}>${escHtml(label)}</option>`;
+                } else {
+                    const safeWid = (w.wid || '').replace(/"/g, '&quot;');
+                    const safeDsp = (w.display || ':10.0').replace(/"/g, '&quot;');
+                    allOptions += `<option value="wid:${safeWid}||${safeDsp}">${escHtml(label)} (Desktop)</option>`;
+                }
+            });
+            allOptions += '</optgroup>';
+        }
 
-        // Workspace pills (not currently open)
+        // Workspace options
         const openNames = new Set(windows.map(w => w.title.toLowerCase()));
-        const wsHtml = workspaces.filter(w => !openNames.has(w.name.toLowerCase())).map(w => {
-            const label = '+ ' + (w.name.length > 22 ? w.name.slice(0, 20) + '\u2026' : w.name);
-            const safePath = (w.path || '').replace(/'/g, "\\'");
-            return `<button class="win-pill workspace" title="Open ${escHtml(w.path)}" onclick="openProject('${safePath}')">${escHtml(label)}</button>`;
-        }).join('');
+        const availableWs = workspaces.filter(w => !openNames.has(w.name.toLowerCase()));
+        if (availableWs.length > 0) {
+            allOptions += '<optgroup label="Open Workspace...">';
+            availableWs.forEach(w => {
+                const label = w.name.length > 30 ? w.name.slice(0, 28) + '\u2026' : w.name;
+                const safePath = (w.path || '').replace(/"/g, '&quot;');
+                allOptions += `<option value="workspace:${safePath}">+ ${escHtml(label)}</option>`;
+            });
+            allOptions += '</optgroup>';
+        }
 
-        pillRow.innerHTML = html + wsHtml || '';
+        winList.innerHTML = allOptions;
     } catch (_) {}
 }
 
 async function openProject(path) {
-    const pillRow = document.getElementById('winPillRow');
-    const oldHtml = pillRow.innerHTML;
-    pillRow.innerHTML = '<span class="win-pill no-windows">Opening project...</span>';
+    const winList = document.getElementById('winList');
+    const oldHtml = winList ? winList.innerHTML : '';
+    if (winList) winList.innerHTML = '<option>Opening project...</option>';
     
     try {
         await fetch('/open-workspace', {
@@ -223,8 +233,27 @@ async function openProject(path) {
         setTimeout(refreshWindowList, 3000);
     } catch (e) {
         alert('Failed to open project: ' + e.message);
-        pillRow.innerHTML = oldHtml;
+        if (winList) winList.innerHTML = oldHtml;
+        refreshWindowList();
     }
+}
+
+async function handleDropdownChange(val) {
+    if (!val) return;
+    if (val.startsWith('workspace:')) {
+        openProject(val.replace('workspace:', ''));
+        setTimeout(refreshWindowList, 500);
+    } else if (val.startsWith('wid:')) {
+        const parts = val.replace('wid:', '').split('||');
+        focusDesktopWin(parts[0], parts[1] || ':0');
+    } else {
+        changeWin(val);
+    }
+}
+
+async function createNewConversation() {
+    const path = prompt("Start new conversation in workspace (leave blank for general):", "/Users/tony/Desktop/AI-Projects");
+    if (path) openProject(path);
 }
 
 async function focusDesktopWin(wid, display) {

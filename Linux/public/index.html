@@ -152,6 +152,16 @@
         .target-pill.active-runtime   { border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
         .target-pill.active-director  { border-color: var(--director); color: var(--director); background: var(--director-dim); }
 
+        /* ── Window Dropdown (Antigravity mode nav) ─────────────────────────── */
+        #winDropdownRow {
+            display: none; /* shown only in browser mode */
+            gap: 6px;
+            align-items: center;
+            padding: 6px 12px 6px 12px;
+            border-top: 1px solid rgba(255,106,0,0.12);
+        }
+        body.mode-browser #winDropdownRow { display: flex; }
+
         select#winList {
             flex: 1;
             min-width: 0;
@@ -159,34 +169,33 @@
             color: var(--text);
             border: 1px solid #333;
             padding: 5px 8px;
-            font-size: 12px;
+            font-size: 13px;
             border-radius: 8px;
             outline: none;
             font-family: inherit;
-            height: 30px;
+            height: 32px;
             cursor: pointer;
-            max-width: 200px;
+            max-width: 100%;
         }
-
         select#winList:focus { border-color: var(--orange); }
-        body.mode-runtime   select#winList { display: none; }
-        body.mode-commander select#winList { display: none; }
-        body.mode-director  select#winList { display: none; }
-        body.mode-browser   select#winList { display: none; }
-        select#winList { display: none; } /* hidden — pills replace it */
-
-        /* ── Window Pills (Antigravity mode nav) ─────────────────────────── */
-        #winPillRow {
-            display: none; /* shown only in browser mode */
-            gap: 6px;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: none;
-            padding: 4px 0 2px;
-            border-top: 1px solid rgba(255,106,0,0.12);
+        select#winList option { background: var(--bg); color: var(--text); }
+        
+        .new-conv-btn {
+            background: var(--orange-dim);
+            color: var(--orange);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            font-family: inherit;
+            height: 32px;
+            transition: all 0.15s;
         }
-        #winPillRow::-webkit-scrollbar { display: none; }
-        body.mode-browser #winPillRow { display: flex; }
+        .new-conv-btn:hover { background: rgba(255,106,0,0.25); }
 
         .win-pill {
             font-size: 11px;
@@ -601,8 +610,7 @@
                 <span class="sub" id="modeLabel">AG-Bridge</span>
             </div>
 
-            <!-- hidden select kept for changeWin() compatibility -->
-            <select id="winList" onchange="changeWin(this.value)" style="display:none"></select>
+
 
             <!-- Active context: shows in all modes -->
             <span id="activeContext" style="margin-left:auto;">—</span>
@@ -620,9 +628,12 @@
             <button onclick="clearStream()" title="Clear chat display" style="background:rgba(255,255,255,0.05);border:1px solid #333;color:#666;font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;flex-shrink:0;font-family:inherit;">✕ Clear</button>
         </div>
 
-        <!-- Window pills (secondary — other open windows) -->
-        <div id="winPillRow">
-            <span class="win-pill no-windows" id="winPillPlaceholder">Scanning…</span>
+        <!-- Window Dropdown (secondary — other open windows) -->
+        <div id="winDropdownRow">
+            <select id="winList" onchange="handleDropdownChange(this.value)">
+                <option value="">Scanning windows...</option>
+            </select>
+            <button class="new-conv-btn" onclick="createNewConversation()" title="Start a fresh conversation">+ New Msg / Window</button>
         </div>
 
         <!-- Mode selector pills -->
